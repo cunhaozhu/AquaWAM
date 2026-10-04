@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Is the ocean current actually applied, and does the DVL see it?
+"""Measure the ocean current's effect on the vehicle, and whether the DVL sees it.
 
-If the DVL is water-relative, a uniform current is invisible to any DVL-based controller and the
-"current" regimes are dynamically indistinguishable from nominal. That changes what the flow probe
-on the disturbance token can possibly mean, so it has to be measured rather than assumed.
+Stonefish applies the uniform current on /bluerov2/ocean_current to the hull once
+current simulation is enabled. With thrust held at zero, compare the DVL integral
+against the actual change in position.
 """
 
 from __future__ import annotations

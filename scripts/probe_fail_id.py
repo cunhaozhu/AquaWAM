@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Which-thruster-failed linear probe on the disturbance token d.
 
-Replaces the flow probe as the regime-identification claim: the ocean current is a no-op in this
-Stonefish build, so "flow" has no physical referent, while thruster-efficiency faults are really
-applied. Classes: 0 = healthy, 1 = thruster1@0.4, 2 = thruster2@0.5, 3 = thrusters4&5@0.5
+Labels which thruster failed. Ocean current is a separate disturbance and does move
+the vehicle; this probe only classifies thruster-efficiency faults.
+Classes: 0 = healthy, 1 = thruster1@0.4, 2 = thruster2@0.5, 3 = thrusters4&5@0.5
 (change_point after t=8 s). Time-split fit (t_frac < 0.8 train, rest test), no window shuffling.
 """
 

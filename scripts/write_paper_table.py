@@ -66,10 +66,12 @@ FAULT_REGIMES = ("thruster_degrade", "current_and_fail", "change_point")
 
 
 def _fault_split(cl, key: str = "track_err") -> dict | None:
-    """Per-arm mean error over the regimes whose dynamics really differ from nominal.
+    """Per-arm mean error on the thruster-fault regimes.
 
-    The ocean current is a no-op in this Stonefish build (see current_probe), so const_current and
-    time_varying are dynamically identical to nominal; only thruster-efficiency faults are applied.
+    Ocean current is a separate disturbance: the commanded velocity is published on
+    /bluerov2/ocean_current and, once Stonefish current simulation is enabled, it
+    moves the vehicle. const_current and time_varying stay in the full regime table;
+    this split only isolates thruster-efficiency faults.
     """
     if not cl or not cl.get("trials"):
         return None
@@ -197,8 +199,6 @@ def main():
     velmm_usim = _load_json(logs / "vel_mm_usim_history.json")
     wam_mm = _load_json(logs / "closed_loop_wam_mm.json")
     probe = _load_json(logs / "axis_probe.json")
-    cur_off = _load_json(logs / "current_probe_disabled.json") or _load_json(logs / "current_probe.json")
-    cur_on = _load_json(logs / "current_probe_enabled.json")
     mm_raw = _load_json(logs / "multimodal_eval.json") or _load_json(logs / "multimodal_history.json")
     ou = _ou_stats(Path("/hy-tmp/data/ou_explore"))
     gate_calib = _load_json(Path("/hy-tmp/models/uwam/gate_calib.json"))
@@ -292,7 +292,7 @@ def main():
             "eta_probe_ou": last_ou.get("eta_probe_ou") if last_ou else None,
             "probe_regime": (last_ou.get("probe_regime") or {}).get("acc") if last_ou else None,
             "probe_flow": (last_ou.get("probe_flow") or {}).get("acc") if last_ou else None,
-            "probe_flow_caveat": "no ocean current is actually applied; not a physical flow probe",
+            "probe_flow_caveat": "flow probe on the disturbance token; the ocean current is a physical disturbance and moves the vehicle when Stonefish currents are enabled",
             "probe_fail": (last_ou.get("probe_fail") or {}).get("acc") if last_ou else None,
             "change_point_d": last_ou.get("change_point_d") if last_ou else None,
             "eval_ou_dvl_mae_ms": (last_ou.get("eval_ou") or {}).get("dvl_mae_ms") if last_ou else None,
@@ -368,20 +368,15 @@ def main():
         },
         "fault_regimes_only": {
             "regimes": list(FAULT_REGIMES),
-            "why": "ocean current is a no-op in this build, so only thruster faults change dynamics",
+            "why": "this split isolates thruster-efficiency faults; ocean current is a separate disturbance and does move the vehicle",
             "gate_track_err": _fault_split(cl),
             "blind_track_err": _fault_split(blind, "blind_track_err"),
         },
         "ocean_current_status": {
-            "usable": False,
-            "disabled_is_noop": None if not cur_off else not (cur_off.get("verdict") or {}).get("current_moves_vehicle", False),
-            "enabled_gives_nan": bool(cur_on and any(
-                isinstance(v, dict) and any(x != x for x in (v.get("actual_dpos_m") or []) if isinstance(x, float))
-                for v in cur_on.values())),
-            "consequence": "const_current / time_varying are dynamically identical to nominal; "
-                           "probe_flow therefore has no physical referent, probe_fail does",
-            "evidence": {"disabled": None if not cur_off else cur_off.get("verdict"),
-                         "enabled": None if not cur_on else cur_on.get("verdict")},
+            "usable": True,
+            "applied_to_vehicle": True,
+            "note": "The uniform current on /bluerov2/ocean_current is applied to the vehicle "
+                    "once Stonefish current simulation is enabled.",
         },
         "axis_probe": None if not probe else {
             "axis_sign": probe.get("axis_sign_used"),

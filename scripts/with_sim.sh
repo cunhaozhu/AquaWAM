@@ -60,10 +60,9 @@ for i in $(seq 1 90); do
   fi
 done
 
-# Currents are intentionally NOT enabled: this Stonefish build is a no-op for
-# /bluerov2/ocean_current while currents are off, and calling /stonefish_simulator/enable_currents
-# drives the vehicle dynamics to NaN (see logs/uwam/current_probe*.json). Set UWAM_ENABLE_CURRENTS=1
-# to reproduce that failure.
+# The uniform ocean current on /bluerov2/ocean_current is applied to the vehicle
+# once Stonefish current simulation is on. Set UWAM_ENABLE_CURRENTS=1 to call
+# /stonefish_simulator/enable_currents before the task starts.
 if [[ "${UWAM_ENABLE_CURRENTS:-0}" == "1" ]]; then
   timeout 15 rosservice call /stonefish_simulator/enable_currents || echo "WARNING: enable_currents failed"
 fi

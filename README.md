@@ -1,12 +1,8 @@
-# AquaWAM: A Dynamics-aware World Action Model for Underwater Embodied Agents
+# AquaWAM
 
-**Paper:** https://arxiv.org/abs/2609.33299
+AquaWAM is a world action model for underwater embodied agents. Instead of predicting pixels, it predicts what the vehicle's own sensors will read: a 35-dimensional physical state from the DVL, IMU, pressure sensor and joint encoders. It picks every command by imagining candidate futures and scoring them, grasps with imagined thrust pulses that cross the thruster dead band, and stands in for the DVL when the DVL loses bottom lock.
 
-**Project page:** https://cunhaozhu.github.io/AquaWAM/
-
-AquaWAM is the first World Action Model designed for underwater embodied agents. Instead of predicting future images, it predicts what the vehicle's own sensors will read: a 35-dimensional physical state from the DVL, IMU, pressure sensor and joint encoders. That state includes the thruster dead band, the inertial glide that outlasts each command, and ambient currents. Every command is chosen by imagining candidate futures and scoring them.
-
-On the 20 tasks of the USIM benchmark, AquaWAM succeeds in 72.6% of trials, against 51.7% for U0 fine-tuned on the same demonstrations under the same protocol. With the DVL lost mid-episode, it succeeds in 61.6% against 39.4% for U0. A decision takes 79.5 ms on an NVIDIA Jetson AGX Orin, 2.7× faster than U0.
+On the 20 tasks of the USIM benchmark, AquaWAM succeeds in 72.6% of trials, against 51.7% for U0 fine-tuned on the same demonstrations under the same protocol. With the DVL lost mid-episode, it succeeds in 61.6% against 39.4% for U0. A decision takes 79.5 ms on a Jetson AGX Orin.
 
 ## Repository layout
 
@@ -22,17 +18,11 @@ On the 20 tasks of the USIM benchmark, AquaWAM succeeds in 72.6% of trials, agai
 - The USIM benchmark and its Stonefish + ROS Noetic simulator. Evaluation runs against the benchmark's own judges.
 - Python 3.10 or newer, PyTorch with CUDA. See `requirements.txt` and `pyproject.toml`.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
 Paths are currently hard-coded to the layout of our training machine (`/hy-tmp/...`): weights under `/hy-tmp/models/uwam/`, simulator instances under `/hy-tmp/u0env*`, results under `/hy-tmp/u0env/dataset/eval_runs/`. Either reproduce this layout or edit the defaults in `u0eval/start_server.sh`, `u0eval/instance_env.sh` and the argument defaults of the scripts you run.
 
 ## Pretrained weights
 
-Weights are not included in this repository. Place them in `/hy-tmp/models/uwam/`.
+The weights are released as a separate archive, `aquawam_weights.tar`. Unpack it so that the files land in `/hy-tmp/models/uwam/`.
 
 | File | Role |
 |---|---|
@@ -52,7 +42,7 @@ Weights are not included in this repository. Place them in `/hy-tmp/models/uwam/
 
 ```bash
 source u0eval/instance_env.sh A
-bash u0eval/start_server.sh wam_percept
+bash u0eval/start_server.sh wam_percept        # AquaWAM policy server
 bash u0eval/run_eval_task.sh <task> wam_percept <n_episodes> <port> <drop_dvl_at_s|-1.0> zero
 python3 u0eval/write_u0_table.py --auto --paper --condition "full sensing" --percept-round r4
 ```
