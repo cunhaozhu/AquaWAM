@@ -1,11 +1,3 @@
-"""
-Wrist-camera relative-pose head: (hand image, front image, joint angles) -> object position in
-the end-effector frame with per-axis uncertainty, plus the object's yaw modulo pi (cylinders and
-pipes are symmetric; the grasp approach only needs the axis direction).
-
-Fine-tuned DINOv2 over both views (camera embeddings, attention pooling), the same recipe as the
-navigation intent head (percept/train_e2e.py). Deployment wrapper at the bottom.
-"""
 from __future__ import annotations
 
 import os
@@ -23,7 +15,7 @@ ENCODERS = {
 MEAN = np.array([0.485, 0.456, 0.406], np.float32)
 STD = np.array([0.229, 0.224, 0.225], np.float32)
 N_JOINTS = 5
-OUT_DIM = 3 + 3 + 2   # obj_ee mean, obj_ee log-variance, (sin 2psi, cos 2psi)
+OUT_DIM = 3 + 3 + 2
 
 
 class WristPose(nn.Module):
@@ -66,14 +58,12 @@ class WristPose(nn.Module):
 
 
 def preprocess_rgb(im_rgb: np.ndarray) -> torch.Tensor:
-    """uint8 HxWx3 RGB (the bridge's camera frames) -> normalized 3x224x224 tensor."""
     im = cv2.resize(im_rgb, (224, 224), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
     im = (im - MEAN) / STD
     return torch.from_numpy(im.transpose(2, 0, 1).copy())
 
 
 class WristPoseHead:
-    """Deployment wrapper: images as uint8 HxWx3 (RGB from the bridge), joints (5,) -> dict."""
 
     def __init__(self, ckpt: str, device: str = "cuda"):
         ck = torch.load(ckpt, map_location=device, weights_only=False)

@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""
-Offline checks of the manipulation world model + grasp planner on real grasp recordings
-(OU-schema episodes with joint / object channels from scripts/recordings_to_ou.py):
-
-  1. open-loop prediction of the object channels and joints over 0.5 s under the RECORDED actions
-     (what the planner will rely on), split by gripper-object distance;
-  2. planner sanity: from windows near the object, the imagined gripper-object error after the
-     planned 1 s vs. under a hold-still action; per-decision latency.
-"""
 from __future__ import annotations
 
 import argparse
@@ -20,11 +11,11 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from uwam.arm_kin import load as load_arm_kin  # noqa: E402
-from uwam.config import ARM_DYN_SLICES  # noqa: E402
-from uwam.data import load_ou_split  # noqa: E402
-from uwam.direct import load_core  # noqa: E402
-from uwam.grasp_planner import GraspCfg, GraspPlanner  # noqa: E402
+from uwam.arm_kin import load as load_arm_kin
+from uwam.config import ARM_DYN_SLICES
+from uwam.data import load_ou_split
+from uwam.direct import load_core
+from uwam.grasp_planner import GraspCfg, GraspPlanner
 
 JP = slice(*ARM_DYN_SLICES["joint_pos"]); OBJ = slice(*ARM_DYN_SLICES["obj"])
 
@@ -75,7 +66,6 @@ def main():
                "joint_pred_err_rad": float(R["joint_err_rad"].mean()), "dvl_pred_err_ms": float(R["dvl_err_ms"].mean())}
     print(json.dumps(summary, indent=1))
 
-    # planner sanity on near windows
     pl = GraspPlanner(m, dn, pn, fk, GraspCfg(), device=dev)
     imp, lat = [], []
     tries = 0
@@ -93,7 +83,6 @@ def main():
         t0 = time.perf_counter()
         pwm, q, info = pl.plan(e.dyn[t - L:t], e.pwm[t - L:t], st, obj, yaw=0.0, rpy=np.zeros(3), omega=st[3:6])
         lat.append(time.perf_counter() - t0)
-        # imagined error under the plan vs. under hold (zero thrust, joints held)
         hold = np.zeros((K, 13), np.float32); hold[:, 8:13] = st[JP]
         plan_a = np.concatenate([pwm, np.tile(q[None], (K, 1))], -1).astype(np.float32)
         f = lambda a: torch.as_tensor(a, device=dev, dtype=torch.float32)

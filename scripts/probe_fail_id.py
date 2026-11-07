@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""Which-thruster-failed linear probe on the disturbance token d.
-
-Labels which thruster failed. Ocean current is a separate disturbance and does move
-the vehicle; this probe only classifies thruster-efficiency faults.
-Classes: 0 = healthy, 1 = thruster1@0.4, 2 = thruster2@0.5, 3 = thrusters4&5@0.5
-(change_point after t=8 s). Time-split fit (t_frac < 0.8 train, rest test), no window shuffling.
-"""
 
 from __future__ import annotations
 
@@ -29,7 +22,6 @@ FAIL_ID = {
     "ou_time_varying": 0,
     "ou_current_and_fail": 1,
     "ou_thruster_degrade": 2,
-    # change_point: 0 before the 8 s switch, 3 after
 }
 
 

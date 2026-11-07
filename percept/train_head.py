@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""Perception-head feasibility probe: frozen DINOv2 features -> target_pos.
-
-Input:  [ego_feat 768, wrist_feat 768, task one-hot 9] per frame
-Output: 6-d body-frame goal pose [dx, dy, dz, roll, pitch, yaw]
-Loss:   L1 on position + wrapped-angle L1 on orientation
-
-The verdict metric is close-range position error on the GRASP task family
-(|label position| < 0.5 m): the expert's own stage tolerance was 3 cm and the
-judge's grasp criterion is 4 cm gripper-object distance.
-"""
 
 from __future__ import annotations
 
@@ -29,7 +19,6 @@ def wrap(a):
 
 
 class Head(nn.Module):
-    """6-d goal pose + 1 gripper-close logit."""
 
     def __init__(self, in_dim: int, hidden: int = 512, out_dim: int = 7):
         super().__init__()
@@ -77,7 +66,6 @@ def bucket_report(err_pos, yaw_err, target, task, prefix="", bearing_err=None):
                 "yaw_mae_rad": float(yaw_err[m].mean()),
             }
             if bearing_err is not None:
-                # navigation steers by the *bearing* of the goal; range is refined on approach
                 rows[f"{prefix}{fam}/{name}"]["bearing_med_deg"] = float(np.median(bearing_err[m]))
                 rows[f"{prefix}{fam}/{name}"]["bearing_p75_deg"] = float(np.percentile(bearing_err[m], 75))
     return rows
@@ -119,8 +107,8 @@ def main():
     if args.extra:
         xd, yd, td, vd, _ = load_split(Path(args.data) / f"{args.extra}_feats{args.suffix}.npz", snorm)
         gpath = Path(args.data) / f"{args.extra}_grip{args.suffix}.npy"
-        gd = np.load(gpath) if gpath.exists() else np.zeros(len(xd), np.float32)  # nav sets have no jaw
-        if args.tasks:  # size the mix against the tasks actually trained on
+        gd = np.load(gpath) if gpath.exists() else np.zeros(len(xd), np.float32)
+        if args.tasks:
             keep0 = [int(t) for t in args.tasks.split(",") if t.strip()]
             xd, yd, td, vd, gd = (a[np.isin(td, keep0)] for a in (xd, yd, td, vd, gd))
             n_ref = int(np.isin(ttr, keep0).sum())
@@ -135,7 +123,6 @@ def main():
         vtr = np.concatenate([vtr, np.ones(reps * len(xd), bool)])
         if gtr is not None:
             gtr = np.concatenate([gtr] + [gd] * reps)
-    # zero-label frames = "expert had no goal yet": excluded from train and eval
     if gtr is not None:
         gtr, gte = gtr[vtr], gte[vte]
     xtr, ytr, ttr = xtr[vtr], ytr[vtr], ttr[vtr]
@@ -178,7 +165,6 @@ def main():
             loss_ang = (w * wrap(pred[:, 3:6] - yb[:, 3:6]).abs()).mean()
             loss = loss_pos + 0.5 * loss_ang
             if args.bearing_loss > 0:
-                # direction of the xy goal, for targets far enough that a bearing is defined
                 gxy = yb[:, :2]
                 far = (gxy.norm(dim=1) > 0.5).float()
                 cos = nn.functional.cosine_similarity(pred[:, :2], gxy, dim=1, eps=1e-6)

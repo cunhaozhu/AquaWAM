@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""
-Calibrate the constant offset between the recorded end-effector pose (/alpha_ee_pose, what the
-bridge and our labels use) and the gripper point the JUDGE scores (MoveIt get_current_pose of the
-grasp group). Both are logged with wall-clock time: the judge writes dx,dy,dz (gripper - object,
-world axes) at 1 Hz into logs/episode_i_data.csv, the recorder stamps every 10 Hz frame.
-
-Model:  off_judge_world = off_ours_world + R_ee_world @ delta_ee      (delta_ee constant, 3 unknowns)
-Solved by least squares over all aligned rows of all episodes found under --roots.  The result is
-written to percept/ee_tip_offset.json and consumed by pack_grasp_recordings.py (and the planner).
-"""
 from __future__ import annotations
 
 import argparse
@@ -23,7 +13,7 @@ import numpy as np
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pack_grasp_recordings import R_EE2ROV, T_EE2ROV, pose_q, pose_xyz, quat_to_R  # noqa: E402
+from pack_grasp_recordings import R_EE2ROV, T_EE2ROV, pose_q, pose_xyz, quat_to_R
 
 
 def wall(ts: str) -> float:
@@ -37,7 +27,7 @@ def main():
     ap.add_argument("--max-episodes", type=int, default=200)
     ap.add_argument("--out", default=str(Path(__file__).resolve().parent / "ee_tip_offset.json"))
     args = ap.parse_args()
-    A, B = [], []   # rows of R_ee_world (3x3) and residuals (3,)
+    A, B = [], []
     n_ep = 0
     for root in args.roots.split(","):
         root = Path(root)
@@ -93,7 +83,7 @@ def main():
                 print(f"  {ep.parent.parent.name}/{ep.parent.name}/{ep.name}: {used} aligned rows", flush=True)
     if not A:
         print("no aligned data"); return
-    A = np.concatenate(A, 0); B = np.concatenate(B, 0)             # (3N,3), (3N,)
+    A = np.concatenate(A, 0); B = np.concatenate(B, 0)
     delta, *_ = np.linalg.lstsq(A, B, rcond=None)
     resid = B - A @ delta
     resid_before = B

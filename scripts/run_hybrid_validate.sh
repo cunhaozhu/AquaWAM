@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Hybrid blind-policy validation: constant-goal dropout (hold should now tie) and
-# fault_mid seed 0 (mild faults should tie, severe still win).
 set -uo pipefail
 CKPT="${CKPT:-/hy-tmp/models/uwam/best_ou.pt}"
 LOGS=/hy-tmp/logs/uwam

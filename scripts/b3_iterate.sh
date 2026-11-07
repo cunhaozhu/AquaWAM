@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# b3: mix MPC-in-the-loop dumps into a short USIM fine-tune (prevents §7.6
-# cos_to_ideal < 0). Dumps come from wam_policy_server --dump-dir.
 set -euo pipefail
 WS=/hy-tmp/underwater_wam
 DUMP=${1:-/hy-tmp/data/planner_task}

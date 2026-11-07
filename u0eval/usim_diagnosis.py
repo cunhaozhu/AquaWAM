@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""USIM-Hard P4: what the dataset covers, per task, seen through the world model.
-
-Per USIM task: demonstration volume, motion regime (speed quantiles, thruster saturation), how
-predictable its dynamics are for the deployed core (offline dyn / estimator MAE from
-eval_per_task.py), and the closed-loop success of U0 and WAM on the matching eval task (ours).
-The point: a VLA's per-task score tracks demonstration volume and regime, a world model's
-tracks physical predictability -- and the latter is nearly flat across tasks.
-"""
 from __future__ import annotations
 
 import argparse
@@ -18,7 +10,6 @@ from pathlib import Path
 import numpy as np
 import pyarrow.parquet as pq
 
-# USIM task_index -> eval task codes whose success we report
 EVAL_TASKS = {
     0: ["goto_charge_station"], 8: ["goto_water_tower"],
     3: ["scan_ship_ancient", "scan_ship_modern"], 4: ["inspect_pipeline_pool", "inspect_pipeline_sea"],
@@ -58,7 +49,6 @@ def main() -> None:
         s = stats[ti]
         s["eps"] += 1
         s["frames"] += len(st)
-        # USIM state layout (meta/modality.json): dvl_v = columns 18:21
         s["speed"].append(np.linalg.norm(st[:, 18:21], axis=1))
         pwm = ac[:, -8:]
         s["sat"] += int((np.abs(pwm) > 0.95).sum())

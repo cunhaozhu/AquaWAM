@@ -1,14 +1,4 @@
 #!/usr/bin/env bash
-# USIM-Hard protocol blocks (resumable). Same simulator, same scenes, same USIM data -- only the
-# evaluation protocol changes, and every arm meets the identical seeded perturbation per episode.
-#
-#   H1 heading   start yaw rotated by 90-180 deg (USIM demos always start facing the goal)
-#   H2 turbidity Jerlov 0.50 water (official 0.15): vision-only perturbation
-#   H3 thruster  one horizontal thruster at 50 % efficiency, unobserved by the policy
-#   H4 tight     goto endpoint ball 1.0 m -> 0.5 m
-#   H5 zero-shot composed tasks never in USIM (round trip / full loop / new depth), sequential judge
-#
-# Usage: bash run_usim_hard.sh [h1|h2|h3|h4|h5|all]
 set -uo pipefail
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 WS=/hy-tmp/underwater_wam
@@ -18,14 +8,11 @@ export U0ENV
 mkdir -p "$LOG"
 NEP=${NEP:-20}
 STAGE=${1:-all}
-# ARMS: which arms this instance runs (default all). The U0-dependent arms need the machine that
-# hosts the U0 server; WAM-only arms can run anywhere.
 ARMS=${ARMS:-"u0 wam fallback wam_percept"}
 port_for() { case "$1" in u0) echo "${PORT_U0:-8001}";; wam) echo "${PORT_WAM:-8000}";; fallback) echo "${PORT_FALLBACK:-8002}";; wam_percept) echo "${PORT_WAM_PERCEPT:-8003}";; esac; }
 want() { case " $ARMS " in *" $1 "*) return 0;; *) return 1;; esac; }
 done_rows() { [ -f "$1" ] && tail -n +2 "$1" 2>/dev/null | wc -l || echo 0; }
 
-# block <cond_tag> <task> <arm> [drop_s]   (perturbation env vars are inherited from the caller)
 block() {
   local tag=$1 task=$2 arm=$3 drop=${4:--1.0}
   want "$arm" || return 0
@@ -39,16 +26,16 @@ block() {
     >"$LOG/hard_${tag}_${task}_${arm}.log" 2>&1 || echo "  (nonzero exit)"
 }
 
-h1() {  # heading
+h1() {
   for task in goto_charge_station goto_water_tower scan_ship_modern inspect_pipeline_pool; do
     for arm in u0 wam wam_percept; do HARD_MODE=heading block hard_heading "$task" "$arm"; done
   done
 }
-h2() {  # turbidity (vision): state-goal WAM is the immune control, wam_percept is the vision-WAM
+h2() {
   for arm in u0 wam wam_percept; do HARD_MODE=jerlov=0.5 block hard_jerlov05 goto_water_tower "$arm"; done
   for arm in u0 wam_percept; do HARD_MODE=jerlov=0.5 block hard_jerlov05 pick_pipe0_shallow "$arm"; done
 }
-h3() {  # actuator fault: thruster 3 (index 2, seen in OU regimes) then thruster 1 (index 0, unseen)
+h3() {
   for task in goto_charge_station goto_water_tower; do
     for arm in u0 wam wam_percept; do THRUSTER_ETA="1,1,0.5,1,1,1,1,1" block hard_eta2_05 "$task" "$arm"; done
   done
@@ -56,12 +43,12 @@ h3() {  # actuator fault: thruster 3 (index 2, seen in OU regimes) then thruster
     for arm in u0 wam wam_percept; do THRUSTER_ETA="0.5,1,1,1,1,1,1,1" block hard_eta0_05 "$task" "$arm"; done
   done
 }
-h4() {  # tight endpoint
+h4() {
   for task in goto_charge_station goto_water_tower; do
     for arm in u0 wam wam_percept; do POS_TOL=0.5 block hard_tight05 "$task" "$arm"; done
   done
 }
-h5() {  # zero-shot composed tasks (task table exp_setting_hard.csv)
+h5() {
   for arm in u0 wam; do
     CONFIG=exp_setting_hard.csv HARD_MODE=roundtrip SEQUENTIAL=true block hard_zeroshot goto_water_tower_roundtrip "$arm"
     CONFIG=exp_setting_hard.csv HARD_MODE=depth=-1.2 block hard_zeroshot goto_water_tower_depth "$arm"

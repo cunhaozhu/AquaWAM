@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# One FastWAM v3 worker. A server is ~40 GB, so one worker per GPU.
-# Args: <inst A|B|C|D> <gpu> <full:task|drop:task> ...
-# Full-sensing tasks run first, then dropout, so the 40 GB server loads twice at most.
-# Archives: fastwam_v3_full_rec8/ and fastwam_v3_drop<T>s_zero_rec8/
 set -uo pipefail
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 WS=/hy-tmp/underwater_wam
@@ -25,7 +21,7 @@ for spec in "$@"; do
 done
 echo "=== worker inst=$INST gpu=$GPU full=${#full[@]} drop=${#drop[@]} $(ts)"
 bash u0eval/reset_instance_x.sh "$INST" || true
-run_kind() {  # <full|drop> tasks...
+run_kind() {
   local kind=$1; shift
   [ "$#" -gt 0 ] || return 0
   echo "=== $INST $kind ($#) $(ts)"

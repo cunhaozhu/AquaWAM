@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-"""Deployment-side perception goal head: frames + proprio -> body-frame goal pose.
-
-Wraps frozen DINOv2-base + the trained regression head behind one predict()
-call, with EMA smoothing and outlier rejection across inference ticks. The
-output is the same quantity the head was trained on: the expert planner's
-staged target pose in the CURRENT vehicle body frame [dx dy dz, r p yaw].
-
-Run as a script for an offline shadow replay over USIM test episodes: decodes
-real videos, runs the exact deployment path, and reports per-stage errors --
-no simulator needed.
-"""
 
 from __future__ import annotations
 
@@ -26,7 +15,6 @@ NAV_HEAD_CKPT = "/hy-tmp/models/uwam/percept_nav_head.pt"
 IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
 IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
 N_TASKS = 9
-# instruction phrase -> USIM task_index (train/meta/tasks.jsonl)
 TASK_PHRASES = (
     ("charge station", 0), ("pick up the pipe", 1), ("blue cylinder", 2),
     ("scan the ship", 3), ("inspect the pipeline", 4), ("follow the boat", 5),
@@ -52,7 +40,7 @@ class PerceptGoal:
 
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from train_head import Head  # noqa: PLC0415
+        from train_head import Head
 
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.encoder = AutoModel.from_pretrained(encoder_dir).to(self.device).half().eval()
@@ -62,9 +50,6 @@ class PerceptGoal:
         sn = ck.get("state_norm")
         self.state_mean = np.asarray(sn[0], np.float32) if sn else None
         self.state_std = np.asarray(sn[1], np.float32) if sn else None
-        # navigation head (goto / scan / inspect / follow): same frozen encoder, own MLP trained
-        # on the locomotion tasks with a bearing loss; predicts the expert's current waypoint in
-        # the body frame. Optional: absent -> nav stays privileged (waypoint file).
         self.nav_head = None
         self.nav_state_mean = self.nav_state_std = None
         if nav_head_ckpt and Path(nav_head_ckpt).exists():
@@ -87,10 +72,6 @@ class PerceptGoal:
     @torch.inference_mode()
     def predict_nav(self, ego_u8: np.ndarray, wrist_u8: np.ndarray, joint_pos: np.ndarray,
                     pressure: float, dvl_h: float, instruction: str, yaw: float | None = None):
-        """Navigation goal: EMA-smoothed body-frame [dx dy dz r p yaw] of the expert's current
-        waypoint, plus the raw (unsmoothed) prediction for confidence checks. `yaw` (vehicle heading)
-        lets the smoother rotate its previous estimate into the current body frame first, so a
-        turning hull does not smear the goal direction (body-frame EMA alone is wrong in turns)."""
         ti = task_index_for(instruction)
         onehot = torch.zeros(1, N_TASKS, device=self.device)
         onehot[0, ti] = 1.0
@@ -111,8 +92,6 @@ class PerceptGoal:
         if self.nav_smoothed is None:
             self.nav_smoothed = raw.copy()
         else:
-            # goal 2-3 m out: smooth (the bearing is what steers); inside 1 m the range shrinks
-            # fast, so freshness matters more than smoothness
             a = 0.35 if np.linalg.norm(raw[:3]) > 1.0 else 0.7
             self.nav_smoothed[:3] = (1 - a) * self.nav_smoothed[:3] + a * raw[:3]
             d = np.arctan2(np.sin(raw[3:] - self.nav_smoothed[3:]), np.cos(raw[3:] - self.nav_smoothed[3:]))
@@ -126,13 +105,12 @@ class PerceptGoal:
         x = torch.nn.functional.interpolate(x, size=(224, 224), mode="bilinear", align_corners=False)
         x = (x - IMAGENET_MEAN.to(self.device)) / IMAGENET_STD.to(self.device)
         h = self.encoder(pixel_values=x.half()).last_hidden_state
-        return torch.cat([h[:, 0], h[:, 1:].mean(dim=1)], dim=-1).float()  # [1, 1536]
+        return torch.cat([h[:, 0], h[:, 1:].mean(dim=1)], dim=-1).float()
 
     @torch.inference_mode()
     def predict(self, ego_u8: np.ndarray, wrist_u8: np.ndarray,
                 joint_pos: np.ndarray, pressure: float, dvl_h: float,
                 instruction: str):
-        """EMA-smoothed 6-d goal + gripper-close probability."""
         ti = task_index_for(instruction)
         onehot = torch.zeros(1, N_TASKS, device=self.device)
         onehot[0, ti] = 1.0
@@ -149,12 +127,7 @@ class PerceptGoal:
             self.smoothed = raw.copy()
             self.grip_p = grip_p
         else:
-            # endgame needs freshness more than smoothness: the true delta
-            # shrinks fast on final approach and EMA lag causes overshoot
             a = self.ema_alpha if np.linalg.norm(raw[:3]) > 0.25 else 0.75
-            # position jump gate: a prediction that teleports the goal is more
-            # likely a perception glitch than a real staged-target switch, so it
-            # only moves the estimate a little; consistent jumps win in ~3 ticks
             if np.linalg.norm(raw[:3] - self.smoothed[:3]) > self.jump_gate_m:
                 a *= 0.35
             self.smoothed[:3] = (1 - a) * self.smoothed[:3] + a * raw[:3]
@@ -165,12 +138,6 @@ class PerceptGoal:
 
 
 class PerceptGoalE2E(PerceptGoal):
-    """Same interface as PerceptGoal, but locomotion goals come from the end-to-end model
-    (percept/train_e2e.py): fine-tuned DINOv2 over both views with attention pooling, predicting the
-    expert's 3 s displacement (disp3) and the current node (wp6). predict_nav() returns a 6-vector
-    whose first three entries are the DISPLACEMENT (the planner treats it as the goal offset) and
-    whose yaw entry is the node's look-at heading (what scan / inspect are judged on).
-    The grasp head (frozen features) is kept for manipulation goals."""
 
     kind = "e2e"
 
@@ -178,14 +145,14 @@ class PerceptGoalE2E(PerceptGoal):
         super().__init__(nav_head_ckpt=None, **kw)
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from train_e2e import PerceptE2E  # noqa: PLC0415
+        from train_e2e import PerceptE2E
         ck = torch.load(e2e_ckpt, map_location=self.device, weights_only=False)
         self.e2e = PerceptE2E(ck.get("encoder", "base"), freeze_blocks=ck.get("freeze_blocks", 4)).to(self.device).eval()
         self.e2e.load_state_dict(ck["model"])
         sn = ck.get("state_norm")
         self.e2e_state_mean = np.asarray(sn[0], np.float32)
         self.e2e_state_std = np.asarray(sn[1], np.float32)
-        self.nav_head = self.e2e   # non-None: the server routes locomotion goals through predict_nav
+        self.nav_head = self.e2e
         print(f"[percept] e2e model {e2e_ckpt} (epoch {ck.get('epoch')})", flush=True)
 
     @torch.inference_mode()
@@ -218,7 +185,7 @@ class PerceptGoalE2E(PerceptGoal):
         if self.nav_smoothed is None:
             self.nav_smoothed = raw.copy()
         else:
-            a = 0.5   # the 3 s intent is already a smooth quantity
+            a = 0.5
             self.nav_smoothed[:3] = (1 - a) * self.nav_smoothed[:3] + a * raw[:3]
             d = np.arctan2(np.sin(raw[3:] - self.nav_smoothed[3:]), np.cos(raw[3:] - self.nav_smoothed[3:]))
             self.nav_smoothed[3:] = self.nav_smoothed[3:] + a * d
@@ -235,7 +202,6 @@ def _decode(path: Path, stride: int) -> np.ndarray:
 
 
 def shadow_replay(split: str, episodes: list[int], stride: int = 3):
-    """Replay real episodes through the deployment path; report goal errors."""
     import pyarrow.parquet as pq
 
     root = Path(f"/hy-tmp/data/usim/{split}")

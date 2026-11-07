@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-"""Scene-diverse exploration policy for re-collecting the WAM training set.
-
-Runs behind the eval harness like any policy server, so the harness's recorder
-captures the DEPLOYMENT sensor stack in every task scene (10 Hz DVL/IMU/
-pressure/altitude, the bridge-smoothed PWM, and all four cameras for the later
-multimodal stage). Command regimes are chosen to cover what the first training
-set lacked (measured on eval recordings):
-  * speeds up to 0.65 m/s and saturated horizontal thrusters (U0's regime),
-  * level flight via the attitude loop, with occasional deliberate mild tilts,
-  * passive coasting (decay data), yaw spins, OU noise, mixer velocity goals.
-Bounded around the spawn point (privileged odometry is fine for collection).
-"""
 
 from __future__ import annotations
 
@@ -24,7 +12,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from uwam.control import AXIS_SIGN, attitude_pwm, sixdof_thrust_to_pwm, vel_track_pwm  # noqa: E402
+from uwam.control import AXIS_SIGN, attitude_pwm, sixdof_thrust_to_pwm, vel_track_pwm
 
 CHUNK = 16
 DT = 0.1
@@ -49,7 +37,7 @@ class Explore:
 
     def _new_segment(self):
         r = self.rng.random()
-        hold = int(self.rng.integers(1, 4))  # chunks (1.6-4.8 s)
+        hold = int(self.rng.integers(1, 4))
         if r < 0.30:
             speed = float(self.rng.uniform(0.05, 0.65))
             ang = float(self.rng.normal(0.0, 0.6))
@@ -71,15 +59,11 @@ class Explore:
                    "surge": float(self.rng.uniform(0.0, 0.5))}
         else:
             seg = {"kind": "coast"}
-        # deliberate mild tilt in a minority of segments (estimator robustness)
         seg["tilt"] = (np.array([self.rng.uniform(-0.2, 0.2), self.rng.uniform(-0.2, 0.2)], np.float32)
                        if self.rng.random() < 0.10 else None)
         self.seg, self.seg_left = seg, hold
 
     def _bounds_violation(self, pos, alt):
-        """None, 'xy' (too far), 'deep' (below band / too close to the seabed) or
-        'shallow' (above band). Scenes differ in spawn altitude (lake: 0.5 m), so
-        the seabed clearance is relative to the altitude at spawn."""
         d = pos[:2] - self.spawn[:2]
         if np.linalg.norm(d) > self.radius:
             return "xy"
@@ -105,7 +89,6 @@ class Explore:
         v = np.zeros(3) if dvl is None else np.ravel(np.asarray(dvl, np.float64))[:3]
         om = np.zeros(3) if av is None else np.ravel(np.asarray(av, np.float64))[:3]
         alt = None if alt is None else float(np.ravel(alt)[0])
-        # new episode: spawn moved > 3 m or task string changed
         if pos is not None and (self.spawn is None or task != self.last_task
                                 or np.linalg.norm(pos - self.spawn) > 60.0):
             self.spawn = pos.copy()
@@ -119,13 +102,11 @@ class Explore:
         if homing:
             yaw = float(rpy[2]) if rpy is not None else 0.0
             if homing == "xy":
-                # steer back toward the spawn point at moderate speed
                 d = self.spawn - pos
                 d[2] = np.clip(d[2], -0.3, 0.3)
                 n = np.linalg.norm(d[:2])
                 vw = 0.35 * d / max(n, 1e-6) if n > 1e-6 else d
             else:
-                # depth-only violation: pure vertical correction toward spawn depth
                 vw = np.array([0.0, 0.0, np.clip(self.spawn[2] - pos[2], -0.25, 0.25)])
                 if homing == "deep" and vw[2] > -0.1:
                     vw[2] = -0.2
@@ -145,7 +126,7 @@ class Explore:
             if rpy is not None:
                 tilt_rpy = rpy.copy()
                 if s["tilt"] is not None:
-                    tilt_rpy[0] -= s["tilt"][0]  # bias the leveling setpoint
+                    tilt_rpy[0] -= s["tilt"][0]
                     tilt_rpy[1] -= s["tilt"][1]
             lvl = attitude_pwm(tilt_rpy, om)
             if s["kind"] == "mixer":
@@ -162,7 +143,7 @@ class Explore:
             elif s["kind"] == "spin":
                 u = sixdof_thrust_to_pwm(np.array([s["surge"], 0, 0], np.float32), np.array([0, 0, s["yaw"]], np.float32))
                 chunk[:] = np.clip(u + lvl, -1, 1)
-            else:  # coast
+            else:
                 chunk[:] = lvl
         self.n += 1
         if self.n % 10 == 1:
@@ -203,7 +184,7 @@ def make_handler(policy):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 import traceback
                 traceback.print_exc()
                 body = json.dumps({"detail": str(e)}).encode()

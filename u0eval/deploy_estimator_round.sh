@@ -1,17 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the blind-path estimator fixes (deployment-trained canonicalized
-# ensemble as v_est + takeover coast) and the reviewed task logic (live-target
-# follow, gripper-servo grasp, ee_pose bridge), at a block boundary:
-#   1. stop the resumers, let the in-flight block finish
-#   2. install bridge, restart wam (8000) + fallback (8002)
-#   3. archive the blind blocks run under the previous blind caliber
-#      (AHRS-yaw code, 21:03 servers): wam_drop* / fallback_drop* with
-#      results newer than that restart; sighted blocks are untouched
-#   4. relaunch the resumable runner + after_full watcher
 set -uo pipefail
-# The IDE shell that launches these orchestrators carries HTTP_PROXY=127.0.0.1:17890
-# with 0.0.0.0 absent from NO_PROXY; the bridge posts to http://0.0.0.0:<port>/act
-# and got 502 Bad Gateway from the proxy. Policy traffic is local: never proxy it.
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 
 WS=/hy-tmp/underwater_wam
@@ -61,11 +49,6 @@ curl -s -m 5 http://127.0.0.1:8000/health; curl -s -m 5 http://127.0.0.1:8002/he
 grep -m1 'vel ensemble' "$LOG/wam_server.log"
 
 echo "=== archive blocks whose controller changed $(date +%H:%M:%S)"
-# (a) every WAM full-sensing block: the attitude loop was open in the eval port
-#     (vehicle at 7-8 deg tilt), now closed -> the sighted controller changed
-# (b) blind blocks run under the previous blind caliber (after the 21:03 restart)
-#     -> new estimator + takeover coast + leveling
-# U0 rows and fallback full-sensing rows (U0 passthrough) are untouched.
 tally() { awk -F, 'NR>1{n++; if($2=="success") s++} END{print s+0"/"n}' "$1"; }
 for t in "$RUNS"/wam_full/*/; do
   [ -f "$t/results.csv" ] || continue

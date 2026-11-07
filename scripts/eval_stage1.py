@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Re-run recovery-paper metrics on a trained stage-1 checkpoint."""
 
 from __future__ import annotations
 

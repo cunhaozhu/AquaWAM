@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# Top a fine-tuned baseline up to USIM's trial allocation (40 per goto / grasp / transport task; the
-# scan / inspect / follow tasks already have their 20): for each task, run the missing episodes into
-# <arm>_<cond>_topup/ and merge them into the protocol block <arm>_<cond>/ with renumbering
-# (u0eval/topup_merge.py). Same server, harness, judges and drop times as the original blocks.
-#   usage: ARM=gr00t2|pi05|xvla|smolvla [TARGET=40] baseline_topup_queue.sh <inst: local|A|B> <gpu> <full|drop> <task ...>
 set -uo pipefail
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 WS=/hy-tmp/underwater_wam; LOG=/hy-tmp/logs/u0eval; export PYTHONPATH=$WS; cd $WS; mkdir -p $LOG
@@ -15,7 +10,7 @@ RUNS=$U0ENV/dataset/eval_runs
 drop_for() { case "$1" in goto_*) echo 8 ;; scan_*|inspect_*) echo 40 ;; follow_*) echo 20 ;; pick_*|transfer_*) echo 30 ;; *) echo 20 ;; esac; }
 healthy() { curl -s -m 5 "http://127.0.0.1:$1/health" 2>/dev/null | grep -q healthy; }
 uniq_eps() { [ -f "$1" ] && tail -n +2 "$1" | cut -d, -f1 | sort -u | wc -l || echo 0; }
-valid_eps() {  # <results.csv>: unique episodes whose judge log has >= 3 data rows
+valid_eps() {
   [ -f "$1" ] || { echo 0; return; }
   local d; d=$(dirname "$1"); local n=0
   for e in $(tail -n +2 "$1" | cut -d, -f1 | sort -u); do
@@ -40,7 +35,6 @@ for t in "$@"; do
     [ "$attempt" != 1 ] && { bash u0eval/reset_instance_x.sh "$([ "$INST" = local ] && echo A || echo "$INST")" 2>&1 | tail -n 1; sleep 5; }
     rm -rf "$U0ENV/dataset/eval/$t" "$RUNS/${ARM}_${COND}_topup/$t"
     COND_TAG="${COND}_topup" bash u0eval/run_eval_task.sh "$t" "$ARM" "$need" "$PORT" "$D" zero >"$LOG/${ARM}_${COND}_topup_$t.log" 2>&1 || true
-    # drop the invalid trials of the top-up block before merging (empty judge log = simulator death)
     tu="$RUNS/${ARM}_${COND}_topup/$t"
     if [ -f "$tu/results.csv" ]; then
       python3 - "$tu" <<'EOF'

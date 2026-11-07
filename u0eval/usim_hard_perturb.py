@@ -1,23 +1,4 @@
 #!/usr/bin/env python3
-"""USIM-Hard: perturb the official mapper's output for one evaluation episode.
-
-Runs between `mapper_setup.py` (which writes the scene .scn and the reference path
-episode_<i>_traj.npy) and `roslaunch` (which loads them). The perturbation is seeded by
-(task, episode), so U0 / WAM / fallback meet the identical start heading, water and path in
-episode i -- a paired comparison. Nothing here touches the official mapper.
-
---mode is a comma list of:
-  heading          start yaw += sign * U(90 deg, 180 deg): the vehicle no longer starts facing the goal
-                   (every USIM demo starts facing it; the eval start pose is otherwise the official one)
-  jerlov=<v>       water turbidity (Jerlov coefficient; official 0.15). Vision-only perturbation.
-  roundtrip        composed task: reference path there AND back to the start (endpoint = start)
-  loop             composed task (scan): full loop around the ship = official side + mirrored side back
-  depth=<dz>       composed task: whole reference path shifted by dz metres in z (positive = deeper)
-
-A side-car episode_<i>_traj.json is always written next to the path with the judge settings
-(pos/yaw tolerance, sequential) so the WAM server can match its waypoint-advance radius to the
-judge instead of assuming the official tolerances.
-"""
 from __future__ import annotations
 
 import argparse
@@ -56,7 +37,6 @@ def perturb_scn(text: str, ops: dict, rng: np.random.Generator, info: dict) -> s
 def perturb_traj(wps: np.ndarray, ops: dict, info: dict) -> np.ndarray:
     if "roundtrip" in ops:
         back = wps[-2::-1].copy()
-        # return leg: face the direction of travel (nav judges ignore yaw; WAM nav mode steers by travel)
         for k in range(len(back)):
             nxt = back[k + 1] if k + 1 < len(back) else back[k]
             prev = wps[-1] if k == 0 else back[k - 1]
@@ -64,8 +44,6 @@ def perturb_traj(wps: np.ndarray, ops: dict, info: dict) -> np.ndarray:
         wps = np.vstack([wps, back])
         info["roundtrip"] = {"n_points": int(len(wps))}
     if "loop" in ops:
-        # scan paths look at the ship centre (yaw = atan2(-y, -x)); the mirrored side is y -> -y,
-        # which maps that look-at yaw to -yaw. Walk it back from the far end to the start.
         mir = wps[-2::-1].copy()
         mir[:, 1] = -mir[:, 1]
         mir[:, 3] = -mir[:, 3]

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Download the USIM dataset from Hugging Face (via hf-mirror)."""
 
 from __future__ import annotations
 
@@ -68,7 +67,7 @@ def main() -> None:
             try:
                 fut.result()
                 ok += 1
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 fail.append((name, str(e)))
     print(json.dumps({"ok": ok, "fail": len(fail)}, indent=2))
     if fail:

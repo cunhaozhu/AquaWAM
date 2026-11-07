@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""Where do closes succeed? From the judge's 1 Hz logs (dx, dy, dz, distance, gripper, effort) of every
-grasp episode under --roots: detect close events (gripper angle rising past 0.005), record the offsets at
-that second and whether a grip (effort >= 0.08) appeared within the next 4 s, and whether the episode
-succeeded. Prints the empirical success region and how the hand-set gate compares."""
 import csv
 import glob
 import sys
@@ -54,7 +50,6 @@ gate = (np.abs(dx) < 0.030) & (np.abs(dy) < 0.007) & (d < 0.035)
 print(f"\ncloses inside the hand-set gate (|dx|<3, |dy|<0.7, d<3.5 cm): {gate.sum()} -> grip {grip[gate].mean() * 100 if gate.sum() else 0:.0f} %, "
       f"episode success {succ[gate].mean() * 100 if gate.sum() else 0:.0f} %")
 print(f"closes outside the gate: {(~gate).sum()} -> grip {grip[~gate].mean() * 100 if (~gate).sum() else 0:.0f} %")
-# best simple region by grid search on |dx|, |dy|, dz range
 best = None
 for tx in (0.02, 0.03, 0.035, 0.05):
     for ty in (0.005, 0.007, 0.01, 0.015, 0.02):

@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""Learned close-outcome model: p(grip | gripper-object offset, its 1 s motion, yaw error proxy) fitted on
-every recorded close event of the pulse-planner blocks (privileged and camera-driven). This is the
-world-model view of the jaw: the jaw command is an action whose outcome we predict, and we close when the
-predicted grip probability is high -- instead of a hand-set box in (dx, dy, d). Episode-grouped CV.
-Writes a small JSON with the logistic model + threshold so the policy server can use it as a gate."""
 import csv, glob, json, sys
 import numpy as np
 
@@ -26,18 +21,15 @@ for root in roots:
                 if i < 2:
                     continue
                 dx, dy, dz, d = a[i, 0], a[i, 1], a[i, 2], a[i, 3]
-                vd = a[i, 3] - a[i - 1, 3]            # 1 s change of the gripper-object distance (settledness)
+                vd = a[i, 3] - a[i - 1, 3]
                 vxy = np.hypot(a[i, 0] - a[i - 1, 0], a[i, 1] - a[i - 1, 1])
                 win = a[i:i + 5]
-                # label = the JUDGE's grasping condition within 4 s of the close (effort >= 0.08 AND |dx| < 3.5 cm
-                # AND |dy| < 1 cm AND distance <= 4 cm), not merely "some jaw force"
                 judged = bool(((win[:, 5] >= 0.08) & (np.abs(win[:, 0]) < 0.035) & (np.abs(win[:, 1]) < 0.01) & (win[:, 3] <= 0.04)).any())
                 X.append([abs(dx), abs(dy), dz, d, abs(vd), vxy]); y.append(float(judged)); g.append(f)
 X, y, g = np.array(X), np.array(y), np.array(g)
-ok = np.isfinite(X).all(1) & (X[:, 3] < 0.30) & (np.abs(X[:, 2]) < 0.30)   # drop simulator blow-ups (offsets of metres)
+ok = np.isfinite(X).all(1) & (X[:, 3] < 0.30) & (np.abs(X[:, 2]) < 0.30)
 X, y, g = X[ok], y[ok], g[ok]
 print(f"{len(y)} close events from {len(set(g))} episodes (after dropping {int((~ok).sum())} blow-up frames); grip rate {y.mean():.2f}")
-# standardize + logistic regression (numpy, L2), 5-fold episode-grouped CV
 def fit(Xtr, ytr, l2=1.0, it=20000, lr=0.5):
     w = np.zeros(Xtr.shape[1] + 1); A = np.hstack([Xtr, np.ones((len(Xtr), 1))])
     for _ in range(it):

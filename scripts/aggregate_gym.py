@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""Aggregate the cross-domain (gym) suite into one summary consumed by paper_table.
-
-Per environment: headline matrix (regime x arm), severity/duration sweep curves,
-fitted gate constants, and the boundary verdicts the theory predicts:
-  nominal  -> who wins the stationary blackout (hold vs replan; sigma_e regime)
-  midfault -> does gated replanning beat hold once the observable change > Delta*
-  goalstep -> latched replanning must win everywhere
-"""
 
 from __future__ import annotations
 

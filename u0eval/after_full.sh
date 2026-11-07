@@ -1,19 +1,12 @@
 #!/usr/bin/env bash
-# Runs after the paper-scale eval finishes (FULL_all_DONE in full_all.log):
-#   1. final Table IV for both conditions
-#   2. underwater benchmark re-run, all arms, mixer hold-anchor caliber
-#      (blind main + fault_mid x3 seeds + goal_step x3 seeds) -> *_mixerhold.json
 set -uo pipefail
-# The IDE shell that launches these orchestrators carries HTTP_PROXY=127.0.0.1:17890
-# with 0.0.0.0 absent from NO_PROXY; the bridge posts to http://0.0.0.0:<port>/act
-# and got 502 Bad Gateway from the proxy. Policy traffic is local: never proxy it.
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 
 WS=/hy-tmp/underwater_wam
 LOG=/hy-tmp/logs/u0eval
 LOGS=/hy-tmp/logs/uwam
 FULL_LOG="$LOG/full_all.log"
-CKPT=/hy-tmp/models/uwam/best_scenes.pt   # the paper's single core
+CKPT=/hy-tmp/models/uwam/best_scenes.pt
 
 echo "=== waiting for FULL_grasp_DONE $(date +%H:%M:%S)"
 while ! grep -q 'FULL_grasp_DONE' "$FULL_LOG" 2>/dev/null; do

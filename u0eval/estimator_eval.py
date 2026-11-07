@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""
-Blind velocity estimator, v1 (exploration + early deployment data) vs v2 (v1 data + 88 h of closed-loop
-sensor logs = DAgger for the estimator), replayed offline on HELD-OUT closed-loop episodes (trial
-index % 10 == 0, never converted for training; plus any extra dirs given).
-
-Per set: surge bias, xy MAE, bias at cruise (|v| > 0.45 m/s), MAE near hover (|v| < 0.2), and the
-30 s dead-reckoning position error obtained by integrating the estimate from the drop tick with the
-true heading (the quantity that decides whether a blind goto arrives). Writes u0eval/estimator_eval.json.
-"""
 from __future__ import annotations
 
 import glob
@@ -19,8 +10,8 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from uwam.control import SamplingMPC  # noqa: E402
-from uwam.direct import load_core  # noqa: E402
+from uwam.control import SamplingMPC
+from uwam.direct import load_core
 
 RUNS = "/hy-tmp/u0env/dataset/eval_runs"
 ESTS = {"v1": "/hy-tmp/models/uwam/vel_ens_scenes.pt", "v2": "/hy-tmp/models/uwam/vel_ens_v2.pt"}

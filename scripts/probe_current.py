@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Measure the ocean current's effect on the vehicle, and whether the DVL sees it.
-
-Stonefish applies the uniform current on /bluerov2/ocean_current to the hull once
-current simulation is enabled. With thrust held at zero, compare the DVL integral
-against the actual change in position.
-"""
 
 from __future__ import annotations
 
@@ -21,7 +15,6 @@ from uwam.rosbridge import SimBridge
 
 
 def drift(bridge: SimBridge, current, seconds: float) -> dict:
-    """Zero thrust, fixed current: compare DVL integral against actual position change."""
     bridge.home()
     t0 = None
     p0 = None

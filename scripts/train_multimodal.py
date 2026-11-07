@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Multimodal WAM: RGB + optional FLS + DVL with modality dropout=0.2."""
 
 from __future__ import annotations
 

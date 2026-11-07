@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Restart wam + fallback policy servers to pick up code fixes, but only while a
-# "/ u0 /" block is running (ports 8000/8002 idle then). One-shot.
 set -uo pipefail
 WS=/hy-tmp/underwater_wam
 LOG=/hy-tmp/logs/u0eval

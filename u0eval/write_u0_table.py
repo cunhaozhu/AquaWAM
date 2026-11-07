@@ -1,19 +1,4 @@
 #!/usr/bin/env python3
-"""Produce the USIM/U0 paper's Table IV, extended with our arms and conditions.
-
-Consumes eval_runs directories produced by run_eval_task.sh (each holds
-<task_code>/results.csv + logs written by the official judges) and computes the
-category metrics with the paper's own tools/evalmetrics code -- no re-implemented
-success criteria. Paper-reported rows (OpenVLA / pi0.5 / GR00T N1.5 / U0) are
-cited verbatim for the full-sensing block.
-
-Usage:
-  python3 u0eval/write_u0_table.py \
-      --run "U0 (repro)"=/hy-tmp/u0env/dataset/eval_runs/u0_full \
-      --run "WAM (ours)"=/hy-tmp/u0env/dataset/eval_runs/wam_full \
-      --condition "Full sensing" \
-      --out /hy-tmp/results/u0_table_full.md
-"""
 
 from __future__ import annotations
 
@@ -27,15 +12,14 @@ from pathlib import Path
 U0ENV = Path("/hy-tmp/u0env")
 sys.path.insert(0, str(U0ENV))
 
-from tools.evalmetrics.data_loader import DataLoader  # noqa: E402
-from tools.evalmetrics.metrics_calculator import (  # noqa: E402
+from tools.evalmetrics.data_loader import DataLoader
+from tools.evalmetrics.metrics_calculator import (
     GraspingMetrics,
     NavigationMetrics,
     TrackingMetrics,
     TransportingMetrics,
 )
 
-# arXiv 2510.07869 v4, Table IV (700 trials; cited, not measured here)
 PAPER_ROWS = [
     ("OpenVLA [paper]", "25.6%", "0.70±0.21", "0.0%", "—", "0.0%", "0.0%", "5.0%", "4.02 m", "6.0% (42/700)"),
     ("π0.5 [paper]", "46.9%", "0.87±0.18", "37.1%", "97.3 s", "20.0%", "45.0%", "10.0%", "4.52 m", "37.6% (263/700)"),
@@ -45,23 +29,14 @@ PAPER_ROWS = [
 
 HEADERS = ["Model", "Nav SR↑", "Nav SPL↑", "Grasp SR↑", "Grasp ASD↓",
            "Transport SR↑", "Transport SSR↑", "Track SR↑", "Track MTD↓", "Overall SR"]
-# The paper's other baselines under DVL dropout. No underwater checkpoints were released, so we
-# fine-tune each on USIM ourselves (footnote: our training budget, not the paper's) and evaluate with
-# the same harness/judges at 20 episodes per task: eval_runs/<arm>_drop*s_zero/<task>. A baseline that
-# has no measured block yet is kept as an empty row so the dropout table keeps Table IV's row set.
 BASELINE_ARMS = [("openvla", "OpenVLA"), ("pi05", "π0.5"), ("gr00t", "GR00T N1.5"),
                  ("xvla", "X-VLA (ICLR'26)"), ("smolvla", "SmolVLA"),
                  ("gr00t2", "GR00T N1.5, full action-head FT 120k×16"), ("fastwam", "FastWAM (WAM baseline)")]
-# the same checkpoints WITHOUT any USIM fine-tune (released weights, our observations mapped onto their
-# input slots, their action vector mapped positionally onto our 13-d interface): full sensing only
 ZERO_SHOT_ARMS = [("gr00t_zs", "GR00T N1.5"), ("pi05_zs", "π0.5"), ("xvla_zs", "X-VLA"), ("smolvla_zs", "SmolVLA")]
 PLACEHOLDER_ROWS = [(f"{m} (DVL dropout)", *(["—"] * 8), "(to run)") for _, m in BASELINE_ARMS[:3]]
 
 
 def dedup_results(run_dir: Path) -> int:
-    """Keep the last row per episode id in every results.csv under run_dir. The harness occasionally
-    writes a second row for the same episode (seen in the baseline runs, never in the WAM/U0 blocks)
-    and the official metrics loader reads every row, so duplicates must go before merging."""
     n = 0
     for f in run_dir.glob("*/results.csv"):
         rows = [r for r in csv.reader(open(f))]
@@ -90,18 +65,10 @@ def _n_rows(task_dir: Path) -> int:
 
 
 def merge_condition(eval_runs: Path, arm: str, kind: str, dest: Path) -> Path:
-    """kind='full' links <arm>_full; kind='drop' unions every <arm>_drop*.
-
-    Several <arm>_drop<T>s dirs can hold the same task (early debug runs at other
-    drop times next to the protocol run); the one with the most completed trials
-    wins, so a 1-episode debug dir can never shadow a 40-trial protocol block.
-    """
     import shutil
 
     dest.mkdir(parents=True, exist_ok=True)
     if kind == "full":
-        # <arm>_full plus any protocol-suffixed re-runs (<arm>_full_rec1, ..._rec16): per task, the block
-        # with the most completed trials wins, exactly as for the dropout dirs below
         srcs = [eval_runs / f"{arm}_full"] + sorted(p for p in eval_runs.iterdir()
                                                     if p.is_dir() and p.name.startswith(f"{arm}_full_rec"))
     else:
@@ -130,10 +97,6 @@ def merge_condition(eval_runs: Path, arm: str, kind: str, dest: Path) -> Path:
 
 def apply_manip_override(eval_runs: Path, dest: Path, kind: str, tag: str = "gp_wam", strict: bool = True,
                          only: set | None = None) -> int:
-    """The deployed WAM does manipulation with the world-model pulse planner (dirs wam_gp_wam /
-    wam_gp_wam_drop<T>s_zero); the plain wam_* dirs hold the earlier hand-tuned primitive, kept as
-    the ablation. Re-point the manipulation tasks of a merged WAM condition dir to the pulse blocks
-    (only those that exist), return how many were overridden."""
     if kind == "full":
         srcs = [eval_runs / f"wam_{tag}"]
     else:
@@ -157,8 +120,6 @@ def apply_manip_override(eval_runs: Path, dest: Path, kind: str, tag: str = "gp_
             tdest.symlink_to(task.resolve())
             n += 1
             linked.add(task.name)
-    # strict: the row must not silently mix sources -- manipulation tasks the new source has not
-    # produced yet are dropped from the merged dir (the table then reports the partial count)
     if n and strict:
         for tdest in list(dest.iterdir()):
             if classify(tdest.name) in ("grasping", "transporting") and tdest.name not in linked:
@@ -186,10 +147,6 @@ _TS_NO_FRAC = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}),", re.M)
 
 
 def normalize_timestamps(run_dir: Path) -> int:
-    """The official recorder writes datetime.isoformat(), which drops the '.%f' part when the
-    microsecond happens to be 0 (about one row per 10^6). pandas then infers '%Y-%m-%dT%H:%M:%S.%f'
-    from the first row and rejects the whole file, so the official DataLoader silently skips that
-    episode's path metrics. Pad such rows with '.000000' in place (value-preserving)."""
     fixed = 0
     for f in run_dir.glob("*/logs/episode_*_data.csv"):
         txt = f.read_text()
@@ -219,7 +176,7 @@ def measure_run(run_dir: Path) -> dict:
                 per_task[t] = (fam, calc[fam].calculate_all_metrics(t, 3))
             else:
                 per_task[t] = (fam, calc[fam].calculate_all_metrics(t))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"[warn] metrics failed for {t}: {e}", file=sys.stderr)
     agg = {f: {"succ": 0, "tot": 0, "extra": []} for f in calc}
     for t, (fam, m) in per_task.items():
@@ -228,7 +185,6 @@ def measure_run(run_dir: Path) -> dict:
         agg[fam]["succ"] += succ
         agg[fam]["tot"] += tot
         if fam == "navigation" and m.get("spl_values"):
-            # per-episode SPL of the successful episodes, pooled over tasks (USIM reports mean±std)
             agg[fam]["extra"] += [float(v) for v in m["spl_values"]]
         if fam == "grasping":
             d = (m.get("avg_success_duration") or {}).get("mean")
@@ -240,7 +196,6 @@ def measure_run(run_dir: Path) -> dict:
                 agg[fam]["extra"] += [float(ssr)] * max(1, tot)
         if fam == "tracking":
             vals = (m.get("avg_tracking_distance") or {}).get("values") or []
-            # per-episode mean distance of the successful episodes, pooled (USIM reports mean±std)
             agg[fam]["extra"] += [float(v) for v in vals]
     return {"per_task": {t: m for t, (_, m) in per_task.items()}, "agg": agg}
 
@@ -254,7 +209,6 @@ def _mean(xs, fmt):
 
 
 def _mean_std(xs, fmt, unit=""):
-    """'mean±std' over per-episode values (population std, as USIM's evalmetrics uses np.std)."""
     if not xs:
         return "—"
     n = len(xs)
@@ -310,26 +264,18 @@ def main():
         runs = Path(args.eval_runs)
         tmp = Path("/tmp/u0_table_merged")
         specs = []
-        # the vision-goal arm is reported at its latest DAgger round (dirs wam_percept_<round>_*)
         percept_dir = f"wam_percept_{args.percept_round}" if args.percept_round else "wam_percept"
-        # full sensing: the U0 row is the paper's (PAPER_ROWS); our re-run is a footnote row only when
-        # --repro-row is given. Dropout has no paper counterpart, so our U0 run is the baseline there.
         arms = [("u0", "U0 (ours, DVL dropout)" if not args.condition.lower().startswith("full") else "U0 (repro, footnote)")]
         if args.paper:
             arms = []
         if args.condition.lower().startswith("full") and not args.repro_row:
             arms = []
         if args.paper:
-            pass   # no re-run row in the paper table
+            pass
         elif args.condition.lower().startswith("full") and any(runs.glob("u0rep_full/*/results.csv")):
-            # the official U0 weights re-run through this harness, 20 episodes per task, same protocol
-            # as the baselines: shows whether the harness reproduces the paper's Table IV numbers
             arms.append(("u0rep", "U0 (official weights, re-run in our harness)"))
         kind = "full" if args.condition.lower().startswith("full") else "drop"
         if args.paper:
-            # U0 is our own run in both conditions: the released weights re-run in our harness under full
-            # sensing (u0rep, 700-trial protocol), our dropout run otherwise. Then our fine-tunes under both
-            # conditions, plain labels; GR00T N1.5 = the full action-head fine-tune when it exists, else LoRA
             paper_arms = ([("u0", "U0")] if kind == "drop" else [("u0rep", "U0")]) + \
                          [("openvla", "OpenVLA"), ("pi05", "π0.5"), ("gr00t2", "GR00T N1.5"), ("gr00t", "GR00T N1.5"),
                           ("xvla", "X-VLA"), ("smolvla", "SmolVLA"), ("fastwam", "FastWAM")]
@@ -343,8 +289,6 @@ def main():
                 seen.add(name)
             PLACEHOLDER_ROWS[:] = []
         elif kind == "drop":
-            # the paper's baselines, fine-tuned by us on USIM and run under the same dropout protocol;
-            # placeholders stay only for the ones with no measured block yet
             measured = []
             for arm, name in BASELINE_ARMS:
                 if any(runs.glob(f"{arm}_drop*/*/results.csv")):
@@ -354,8 +298,6 @@ def main():
                     measured.append(name)
             PLACEHOLDER_ROWS[:] = [r for r in PLACEHOLDER_ROWS if not any(r[0].startswith(m) for m in measured)]
         else:
-            # calibration rows: our USIM fine-tune of a paper baseline re-run under full sensing, so the
-            # reader can relate the dropout rows (which only exist for our fine-tune) to the paper's numbers
             for arm, name in BASELINE_ARMS:
                 if any(runs.glob(f"{arm}_full/*/results.csv")):
                     dest = tmp / f"{arm}_{kind}"
@@ -376,40 +318,30 @@ def main():
                 wam_rows.append(("fallback", "U0 + WaterWAM takeover"))
         for arm, label in arms + wam_rows:
             if not any(runs.glob(f"{arm}_{'full' if kind == 'full' else 'drop*'}/*/results.csv")):
-                continue  # arm not evaluated (yet)
+                continue
             dest = tmp / f"{arm}_{kind}"
             merge_condition(runs, arm, kind, dest)
             if arm == percept_dir:
-                # vision row: locomotion from the DAgger'd image-goal head, manipulation from the
-                # wrist-camera-driven grasp blocks -- the latest DAgger round of the wrist head that has
-                # all 12 pick blocks (wam_wrist_r2 before wam_wrist)
                 wtag = next((t for t in ("wrist_r2", "wrist") if len(list(runs.glob(f"wam_{t}{'' if kind == 'full' else '_drop*'}/pick_*/results.csv"))) >= 12), "wrist")
                 n_w = apply_manip_override(runs, dest, kind, tag=wtag)
-                # transporting: the fully camera-driven block (object from the wrist head, destination
-                # from the forward-camera container head) when it exists -- otherwise the wrist-only
-                # block, whose destination is still read from the task file
                 n_w += apply_manip_override(runs, dest, kind, tag=f"{wtag}_box", strict=False,
                                             only={"transporting"})
                 if n_w and not args.paper:
                     label = f"WAM (vision: image goals {args.percept_round} + wrist camera {wtag.replace('wrist_', '').replace('wrist', 'r1')})"
                     print(f"[vision] {n_w} manipulation task(s) taken from the wrist-camera blocks ({kind})", file=sys.stderr)
             if arm == "wam" and has_pulse:
-                # deployed system: manipulation by the world-model pulse planner; the hand-tuned
-                # primitive stays as an ablation row right below
                 n_over = apply_manip_override(runs, dest, kind)
                 specs.append(f"{'WaterWAM (given goal poses)' if args.paper else 'WAM (privileged wp, world-model pulses)'}={dest}")
                 if args.paper:
-                    pass   # the hand-tuned primitive is an ablation-table row, not a Table 1 row
-                elif kind == "full":   # the plain wam_full dirs hold the primitive under full sensing
+                    pass
+                elif kind == "full":
                     prim = tmp / f"wam_prim_{kind}"
                     merge_condition(runs, arm, kind, prim)
                     specs.append(f"WAM, hand-tuned fine positioning (ablation)={prim}")
                 elif any(runs.glob("wam_gp_prim_drop*/*/results.csv")):
-                    # dropout counterpart, re-run with the final code (primitive planner, 1.6 s cadence,
-                    # estimator v2) into wam_gp_prim_drop<T>s_zero/; locomotion rows come from wam_drop*
                     prim = tmp / f"wam_prim_{kind}"
                     merge_condition(runs, arm, kind, prim)
-                    n_prim = apply_manip_override(runs, prim, kind, tag="gp_prim")   # strict: no old-code blocks mixed in
+                    n_prim = apply_manip_override(runs, prim, kind, tag="gp_prim")
                     specs.append(f"WAM, hand-tuned fine positioning (ablation, {n_prim}/13 tasks)={prim}")
                 print(f"[wam] {n_over} manipulation task(s) taken from the pulse-planner blocks ({kind})", file=sys.stderr)
                 continue
@@ -420,7 +352,7 @@ def main():
     lines.append("| " + " | ".join(HEADERS) + " |")
     lines.append("|" + "|".join(["---"] * len(HEADERS)) + "|")
     if args.paper:
-        pass   # no paper-reported rows or numbers in the paper table
+        pass
     elif args.paper_rows and args.condition.lower().startswith("full"):
         for r in PAPER_ROWS:
             lines.append("| " + " | ".join(r) + " |")

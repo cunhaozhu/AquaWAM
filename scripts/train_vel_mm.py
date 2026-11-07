@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Train the multimodal dead-reckoning head (camera + FLS replacing the DVL).
-
-Trains only VelMM on image-bearing OU episodes; the dynamics model stays frozen. Evaluation is a
-time split (t_frac >= 0.8 held out) reporting proprio-only vs multimodal MAE on the same windows,
-overall and on fault frames.
-"""
 
 from __future__ import annotations
 
@@ -26,11 +20,6 @@ from uwam.velmm import VelMM, pack_img_pair
 
 
 class MMWindow(Dataset):
-    """Masked proprio window + stacked (prev, now) RGB+FLS frames + target velocity.
-
-    Episodes either carry in-memory arrays (our OU/planner npz) or an ego video on disk
-    (USIM LeRobot episodes), which is decoded lazily with a small per-episode cache.
-    """
 
     def __init__(self, episodes, cfg, dyn_norm, pwm_norm, stride: int = 2, video_cache: int = 24):
         self.cfg = cfg
@@ -54,14 +43,13 @@ class MMWindow(Dataset):
         return len(self.index)
 
     def _video_rgb(self, ei: int):
-        """Decoded ego video as uint8 [T, H, W, 3], LRU-cached per episode."""
         if ei not in self._cache:
             from uwam.data import _read_video_frames
 
             if len(self._cache) >= self._cache_max:
                 self._cache.pop(next(iter(self._cache)))
             fr = _read_video_frames(self.eps[ei].ego_video, self.cfg.schema.image_hw)
-            if fr is not None:  # [T,3,H,W] float01 -> uint8 HWC
+            if fr is not None:
                 fr = (fr.transpose(0, 2, 3, 1) * 255.0).astype(np.uint8)
             self._cache[ei] = fr
         return self._cache[ei]
@@ -96,18 +84,11 @@ class MMWindow(Dataset):
 
 
 def run_usim_paired(args, cfg, dyn, dyn_norm, pwm_norm, device):
-    """Does RGB help dead reckoning in USIM's rich task scenes?
-
-    Two identical-capacity VelMM heads are trained on the same batches; one sees the real ego
-    frames, the other sees zeros. The only variable is image content, so the comparison is paired
-    by construction. Reported overall and per task (pipeline, ship, charge station, ...).
-    """
     from uwam.data import load_split, load_tasks
 
     all_eps = load_split(Path(args.usim), "train", cfg.schema)
     tasks = load_tasks(Path(args.usim) / "train")
     with_video = [e for e in all_eps if e.ego_video is not None and e.ego_video.exists()]
-    # balance across tasks so the per-task breakdown has support everywhere
     by_task = {}
     for e in with_video:
         by_task.setdefault(e.task_index, []).append(e)

@@ -1,21 +1,4 @@
 #!/usr/bin/env python3
-"""End-to-end perception for the world-model system: fine-tuned DINOv2 on the stereo/ego+wrist views
-with spatial attention pooling, predicting the expert's INTENT.
-
-Why this replaces the frozen-feature head (percept/train_head.py):
-  * mean-pooled CLS+patch features discard WHERE the target is in the image; the two scenes that
-    collapsed in closed loop (inspect_pipeline_sea, scan_ship_ancient) are exactly the ones that need
-    image position (a pipe on the seabed, the edge of a wreck)
-  * frozen ImageNet-domain features under-fit underwater rendering (range biased 2-3 m short far out)
-  * "the expert's current node" is a discrete, jumping label; the expert's displacement over the
-    next 3 s is smooth, always defined and carries the obstacle detours
-
-Inputs match the VLA's: two RGB views, proprioception (joints, pressure, altitude), task id.
-Outputs: disp3 (body-frame displacement over 3 s), wp6 (node in body frame, auxiliary; its yaw is
-the look-at heading scan/inspect are judged on).
-
-  python3 percept/train_e2e.py --epochs 6 --out /hy-tmp/models/uwam/percept_e2e.pt
-"""
 from __future__ import annotations
 
 import argparse
@@ -75,7 +58,6 @@ class PairSet(Dataset):
         im = cv2.imdecode(np.frombuffer(buf, np.uint8), cv2.IMREAD_COLOR)
         im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
         if self.train:
-            # mild photometric jitter only (no flips / rotations: the labels are geometric)
             a = np.random.uniform(0.8, 1.2); b = np.random.uniform(-20, 20)
             im = np.clip(im.astype(np.float32) * a + b, 0, 255)
             if np.random.rand() < 0.5:
@@ -93,7 +75,6 @@ class PairSet(Dataset):
 
 
 class PerceptE2E(nn.Module):
-    """Shared DINOv2 over both views, camera embeddings, attention pooling, MLP -> disp3 + wp6."""
 
     def __init__(self, encoder="base", n_queries=4, freeze_blocks=4):
         super().__init__()
@@ -117,7 +98,7 @@ class PerceptE2E(nn.Module):
         )
 
     def tokens(self, x):
-        return self.backbone(pixel_values=x).last_hidden_state  # [B, 1+256, d]
+        return self.backbone(pixel_values=x).last_hidden_state
 
     def forward(self, ego, wrist, state, task):
         B = ego.shape[0]
@@ -126,7 +107,7 @@ class PerceptE2E(nn.Module):
         q = self.queries.unsqueeze(0).expand(B, -1, -1)
         pooled, _ = self.attn(q, t, t)
         h = torch.cat([pooled.flatten(1), self.task_emb(task), state], dim=-1)
-        return self.head(h)   # [:, :3] disp3, [:, 3:9] wp6
+        return self.head(h)
 
 
 def evaluate(model, loader, device):

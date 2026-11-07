@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Pack transfer recordings into a training set for the DESTINATION (container) head: forward (right)
-camera frame -> container position in the yaw-rotated vehicle body frame. Emits the same npz layout as
-pack_grasp_recordings.py so percept/train_wrist_pose.py trains it unchanged (--no-ego; joints are zeros):
-  wrist_jpg = right-camera 224x224 JPEG, obj_ee = container position in the body frame [m],
-  rel_yaw = container yaw - vehicle yaw, joints = zeros(5), dist = |container - vehicle|, episode id.
-The container pose comes from the harness's episode_<i>_desti.npy (training label only)."""
 import argparse, glob, pickle
 from pathlib import Path
 

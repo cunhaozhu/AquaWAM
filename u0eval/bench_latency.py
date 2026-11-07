@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""Latency benchmark of the deployed WaterWAM policy components on a given device (desktop CPU/GPU or a
-Jetson). Uses the production classes with synthetic inputs of the production shapes:
-  - imagination planner for cruising (SamplingMPC, budgets 32x1 / 128x2 / 512x2)
-  - pulse planner for fine positioning (GraspPlanner.plan_pulse, 35-d arm+object core)
-  - image-goal head r4 (PerceptGoalE2E.predict_nav), wrist-camera head r2, container head r1
-Reports median / p95 ms per call after warm-up and a per-control-step total, and writes JSON.
-  python3 u0eval/bench_latency.py --device cuda --models /hy-tmp/models/uwam --out /tmp/bench_cuda.json
-"""
 from __future__ import annotations
 
 import argparse
@@ -67,12 +59,12 @@ def main():
     print("[bench]", json.dumps(info))
     res = {"info": info}
 
-    from uwam.config import Cfg, enable_arm, enable_object  # noqa: E402
-    from uwam.control import SamplingMPC  # noqa: E402
-    from uwam.data import RunningNorm  # noqa: E402
-    from uwam.models import DynamicsWAM  # noqa: E402
+    from uwam.config import Cfg, enable_arm, enable_object
+    from uwam.control import SamplingMPC
+    from uwam.data import RunningNorm
+    from uwam.models import DynamicsWAM
 
-    def _load_model(ckpt_path, device):  # same as wam_policy_server._load_model (kept import-light for Jetson)
+    def _load_model(ckpt_path, device):
         cfg = Cfg(); cfg.model.use_language = False
         ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
         if "cfg" in ckpt:
@@ -86,7 +78,6 @@ def main():
         dn, pn = RunningNorm(), RunningNorm(); dn.load_state_dict(ckpt["dyn_norm"]); pn.load_state_dict(ckpt["pwm_norm"])
         return m, dn, pn, cfg
 
-    # --- 1. cruising imagination planner --------------------------------------------------------
     model, dyn_norm, pwm_norm, cfg = _load_model(M / "best_scenes.pt", dev)
     D = cfg.model.dyn_state_dim
     mpc = SamplingMPC(model, dyn_norm, pwm_norm, cfg.control, device=dev)
@@ -106,48 +97,45 @@ def main():
         print(f"[bench] cruise planner {n_s}x{it}: median {r['median_ms']:.1f} ms, p95 {r['p95_ms']:.1f} ms")
     mpc.cfg.n_samples, mpc.cfg.cem_iters = 128, 2
 
-    # --- 2. pulse planner (fine positioning) ----------------------------------------------------
     try:
-        from uwam.arm_kin import load as load_arm_kin  # noqa: E402
-        from uwam.grasp_planner import GraspCfg, GraspPlanner  # noqa: E402
+        from uwam.arm_kin import load as load_arm_kin
+        from uwam.grasp_planner import GraspCfg, GraspPlanner
 
         gm, gdn, gpn, gcfg = _load_model(M / "grasp_core.pt", dev)
         arm_kin = load_arm_kin(str(M / "arm_kin.pt"), dev)
         gp = GraspPlanner(gm, gdn, gpn, arm_kin, GraspCfg(), device=dev)
         hs = (0.02 * rng.standard_normal((16, gcfg.model.dyn_state_dim))).astype(np.float32)
-        hs[:, 6:11] = np.array([0.0, 0.32, 0.32, 0.33, 0.0], np.float32)     # armed joint pose slot (approx.)
-        ha = (0.05 * rng.standard_normal((16, 13))).astype(np.float32)   # 5 joints + 8 thrusters
+        hs[:, 6:11] = np.array([0.0, 0.32, 0.32, 0.33, 0.0], np.float32)
+        ha = (0.05 * rng.standard_normal((16, 13))).astype(np.float32)
         ha[:, :5] = hs[0, 6:11]
         obj_body = np.array([0.30, 0.02, -0.10], np.float32)
         r = timeit(lambda: gp.plan_pulse(hs, ha, hs[-1], obj_body, 0.0, rpy=np.zeros(3, np.float32), omega=np.zeros(3, np.float32), z_above=None),
                    args.repeats, sync=sync)
         res["pulse_planner"] = r
         print(f"[bench] pulse planner: median {r['median_ms']:.1f} ms, p95 {r['p95_ms']:.1f} ms")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"[bench] pulse planner skipped: {type(e).__name__}: {e}")
 
     if not args.skip_vision:
-        import percept.goal_head as gh  # noqa: E402
+        import percept.goal_head as gh
         enc = args.encoder or gh.ENCODER_DIR
         ego = rng.integers(0, 255, (240, 320, 3), dtype=np.uint8)
         wrist = rng.integers(0, 255, (240, 320, 3), dtype=np.uint8)
         jp = np.array([0.0, 0.32, 0.32, 0.33, 0.0], np.float32)
-        # --- 3. image-goal head r4 ---------------------------------------------------------------
         try:
             pg = gh.PerceptGoalE2E(e2e_ckpt=str(M / "percept_e2e_r4.pt"), head_ckpt=str(M / "percept_head_base.pt"),
                                    encoder_dir=enc, device=dev)
             r = timeit(lambda: pg.predict_nav(ego, wrist, jp, 0.1, 2.5, "Go to the charging station", yaw=0.0), args.repeats, sync=sync)
             res["image_goal_head_r4"] = r
             print(f"[bench] image-goal head r4: median {r['median_ms']:.1f} ms, p95 {r['p95_ms']:.1f} ms")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"[bench] image-goal head skipped: {type(e).__name__}: {e}")
-        # --- 4/5. wrist-camera head r2, container head r1 ----------------------------------------
-        import percept.wrist_pose_model as wpm  # noqa: E402
-        from percept.wrist_pose_model import WristPoseHead  # noqa: E402
-        try:  # some embedded OpenCV builds reject numpy arrays (numpy ABI mismatch): fall back to PIL resize
+        import percept.wrist_pose_model as wpm
+        from percept.wrist_pose_model import WristPoseHead
+        try:
             wpm.cv2.resize(np.zeros((8, 8, 3), np.uint8), (4, 4))
-        except Exception:  # noqa: BLE001
-            from PIL import Image  # noqa: PLC0415
+        except Exception:
+            from PIL import Image
             wpm.cv2.resize = lambda im, size, interpolation=None: np.asarray(Image.fromarray(im).resize(size, Image.BILINEAR))
             print("[bench] cv2.resize unusable here -> PIL resize (same 224x224 output)")
         for name, f in (("wrist_head_r2", "wrist_pose_r2.pt"), ("box_head_r1", "box_pose_r1.pt")):
@@ -158,10 +146,9 @@ def main():
                 r = timeit(lambda: wh.predict(wrist, ego, jp), args.repeats, sync=sync)
                 res[name] = r
                 print(f"[bench] {name}: median {r['median_ms']:.1f} ms, p95 {r['p95_ms']:.1f} ms")
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 print(f"[bench] {name} skipped: {type(e).__name__}: {e}")
 
-    # --- per-control-step totals (perception + planner), vs the 0.5 s replanning budget ----------
     tot = {}
     if "image_goal_head_r4" in res:
         tot["cruise_step_ms"] = res["image_goal_head_r4"]["median_ms"] + res["mpc_128x2"]["median_ms"]

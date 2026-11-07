@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Offline smoke test of the WAM server's amortized action source (no sim, no HTTP).
-
-Runs the same synthetic goto observation through WamPolicy.act() with action_source
-mpc / direct / direct_cem and checks that every path returns a well-formed chunk whose
-translational intent (surge toward the goal) agrees in sign, plus reports per-act latency.
-"""
 import sys
 import time
 import types
@@ -14,11 +8,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from wam_policy_server import WamPolicy  # noqa: E402
+from wam_policy_server import WamPolicy
 
 ROOT = Path("/tmp/smoke_direct_root")
 (ROOT / "goto_charge_station" / "logs").mkdir(parents=True, exist_ok=True)
-# waypoint file the server picks up as the current trajectory: 3 nodes straight ahead (+x)
 wps = np.array([[2.0, 0.0, 3.0, 0.0], [6.0, 0.0, 3.0, 0.0], [10.0, 0.0, 3.0, 0.0]], np.float64)
 np.save(ROOT / "goto_charge_station" / "logs" / "episode_0_traj.npy", wps)
 
@@ -50,7 +43,6 @@ def obs(pos, vel=(0.0, 0.0, 0.0)):
 
 
 def imagined_velocity(pol, o, chunk):
-    """Roll the first 0.5 s of the emitted chunk through the core: predicted mean DVL velocity (m/s)."""
     import torch
 
     from uwam.direct import ImaginedCost

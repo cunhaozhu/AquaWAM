@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Build the USIM paper simulator: u0env = Stonefish + stonefish_ros + BlueROV2.
 set -euo pipefail
 
 ROOT="${1:-/hy-tmp/u0env}"
@@ -39,7 +38,6 @@ mkdir -p "$ROOT"
 clone_try "$ROOT/Stonefish" "patrykcieslak/stonefish" "v1.5"
 clone_try "$ROOT/ros_ws/src/stonefish_ros" "VincentGu2000/stonefish_ros" "v1.4-fixed"
 
-# Alpha5 description (public ROS2 driver repo; meshes may be license-limited)
 if [[ ! -d "$ROOT/ros_ws/src/description_alpha/origin/alpha_description" ]]; then
   mkdir -p "$ROOT/ros_ws/src/description_alpha/origin"
   if [[ -d /hy-tmp/src/alpha/alpha_description ]]; then
@@ -62,7 +60,6 @@ if [[ ! -x "$CONDA_PREFIX/bin/python" ]]; then
   exit 1
 fi
 
-# shellcheck disable=SC1091
 source "$CONDA_PREFIX/etc/profile.d/conda.sh" 2>/dev/null || true
 export PATH="$CONDA_PREFIX/bin:$PATH"
 
@@ -70,7 +67,6 @@ log "installing glm/sdl2/freetype + extra ROS pkgs if missing"
 mamba install -y -p "$CONDA_PREFIX" -c conda-forge glm sdl2 freetype compilers cmake make pkg-config \
   || conda install -y -p "$CONDA_PREFIX" -c conda-forge glm sdl2 freetype cmake make
 
-# optional extras from u0env README
 mamba install -y -p "$CONDA_PREFIX" -c robostack-noetic -c conda-forge \
   ros-noetic-ros-control ros-noetic-perception ros-noetic-moveit || true
 "$CONDA_PREFIX/bin/python" -m pip install trimesh fast-simplification pandas matplotlib || true
@@ -87,18 +83,15 @@ cmake -S "$ROOT/cpp_env" -B "$ROOT/build/mysim_build" -DCMAKE_PREFIX_PATH="$ROOT
 cmake --build "$ROOT/build/mysim_build" -j"$(nproc)"
 
 log "building ROS workspace"
-# Upstream src/CMakeLists.txt is a machine-specific catkin symlink; rewrite it.
 cat > "$ROOT/ros_ws/src/CMakeLists.txt" <<EOF
 cmake_minimum_required(VERSION 3.0.2)
 include(${CONDA_PREFIX}/share/catkin/cmake/toplevel.cmake)
 EOF
 touch "$ROOT/ros_ws/src/description_alpha/origin/CATKIN_IGNORE" 2>/dev/null || true
-# ROS1 genmsg needs classic empy 3.x (em.RAW_OPT). conda-forge often ships 4.x.
 "$CONDA_PREFIX/bin/python" -m pip install -q 'empy==3.3.4' || true
 export CMAKE_PREFIX_PATH="$ROOT/build/stonefish_install:${CMAKE_PREFIX_PATH:-}"
 cd "$ROOT/ros_ws"
 rm -rf build devel
-# catkin_make lives in the ROS env
 "$CONDA_PREFIX/bin/catkin_make" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 || catkin_make -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
 log "done. Headless test:"

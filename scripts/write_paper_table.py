@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Assemble paper_table.json from stage-1/2, OU, closed-loop, and multimodal dropout."""
 
 from __future__ import annotations
 
@@ -20,7 +19,6 @@ def _load_json(p: Path):
 
 
 def _load_newest(*paths: Path):
-    """The seeded reruns supersede the older unseeded files; take whichever is freshest."""
     existing = [p for p in paths if p.exists()]
     if not existing:
         return None
@@ -66,13 +64,6 @@ FAULT_REGIMES = ("thruster_degrade", "current_and_fail", "change_point")
 
 
 def _fault_split(cl, key: str = "track_err") -> dict | None:
-    """Per-arm mean error on the thruster-fault regimes.
-
-    Ocean current is a separate disturbance: the commanded velocity is published on
-    /bluerov2/ocean_current and, once Stonefish current simulation is enabled, it
-    moves the vehicle. const_current and time_varying stay in the full regime table;
-    this split only isolates thruster-efficiency faults.
-    """
     if not cl or not cl.get("trials"):
         return None
     out = {}
@@ -87,11 +78,6 @@ def _fault_split(cl, key: str = "track_err") -> dict | None:
 
 
 def _recovery_summary(cl) -> dict | None:
-    """Post-change-point error integral per arm.
-
-    recover_s is 0 for every arm because the switch never pushes anyone outside the gate, so the
-    integral is the only informative number here; say so rather than reporting "0 s to recover".
-    """
     if not cl or not cl.get("change_point_recovery"):
         return None
     raw = cl["change_point_recovery"]
@@ -142,7 +128,6 @@ def _gaps(table: dict, targets: dict) -> dict:
         if base:
             g["blind_wam_vs_best_baseline"] = round(
                 float(b_arms["wam"]["mean_blind_track"]) - float(min(base)), 4)
-    # prefer the 3-seed means for the two discriminating experiments
     ms = table.get("multiseed") or {}
     for name, key in (("fault_during_blackout", "fault_blackout_wam_vs_best_baseline"),
                       ("goal_step_blackout", "goal_step_wam_vs_best_baseline")):

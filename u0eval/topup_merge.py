@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-"""Merge a top-up block into a protocol block, renumbering the new episodes after the existing ones.
-
-    topup_merge.py <eval_runs> <arm_cond> [task ...]
-
-For every task under <eval_runs>/<arm_cond>_topup/ (or only the tasks given), the rows of its
-results.csv and its logs/episode_<i>_* files are appended to <eval_runs>/<arm_cond>/<task>/ with
-episode index i -> i + offset, offset = 1 + the highest existing episode index. The official mapper
-draws every episode's spawn unseeded (random.seed(None)), so the appended trials are fresh draws of
-the same protocol. The consumed top-up dir is moved to <eval_runs>/_merged_topup/ so a second call
-cannot merge it twice; results.csv of the target is backed up once as results.csv.pre_topup.
-"""
 import csv
 import shutil
 import sys
@@ -29,7 +18,7 @@ def merge_task(src: Path, dst: Path) -> tuple[int, int]:
     (dst / "logs").mkdir(exist_ok=True)
     old = rows_of(dst / "results.csv")
     seen: dict[str, list[str]] = {}
-    for r in old:                       # keep the first row of a duplicated episode id
+    for r in old:
         seen.setdefault(r[0], r)
     old = list(seen.values())
     offset = 1 + max((int(r[0]) for r in old if r[0].isdigit()), default=-1)

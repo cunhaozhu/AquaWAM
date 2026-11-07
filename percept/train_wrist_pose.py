@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""
-Train the wrist-camera relative-pose head on packs from percept/pack_grasp_recordings.py.
-
-  loss = Gaussian NLL(obj_ee | mu, sigma)  +  MSE((sin 2psi, cos 2psi))
-Episodes (not frames) are held out for validation. Reports xyz MAE split at 0.4 m gripper-object
-distance (the acceptance test: < 2 cm inside 0.4 m) and the error/sigma correlation.
-"""
 from __future__ import annotations
 
 import argparse, os
@@ -22,7 +15,7 @@ from torch.utils.data import DataLoader, Dataset
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from wrist_pose_model import MEAN, STD, WristPose  # noqa: E402
+from wrist_pose_model import MEAN, STD, WristPose
 
 
 MAX_RANGE = float(os.environ.get('WRIST_MAX_RANGE', '2.5'))
@@ -38,8 +31,6 @@ class GraspFrames(Dataset):
                     arrs[k].append(z[k])
             print(f"  {Path(f).name}: {len(z['dist'])} frames x{rep}", flush=True)
         self.d = {k: np.concatenate(v) for k, v in arrs.items()}
-        # simulator blow-ups (vehicle teleported to ~3e5 m) leave absurd labels; also drop frames with
-        # the object far outside any plausible reach of the wrist camera
         oe = self.d["obj_ee"].astype(np.float64)
         ok = np.isfinite(oe).all(1) & (np.linalg.norm(oe, axis=1) < MAX_RANGE) & np.isfinite(self.d["dist"]) & \
              np.isfinite(self.d["joints"].astype(np.float64)).all(1) & (np.abs(self.d["joints"]).max(1) < 10)
@@ -114,7 +105,6 @@ def main():
     files = [f for f in args.data.split(",") if f]
     reps = [int(r) for r in args.reps.split(",") if r] or [1] * len(files)
 
-    # episode-level split (on the first pack's episode ids, replicated packs share them)
     all_eps = np.concatenate([np.load(f, allow_pickle=True)["episode"] for f in files])
     uniq = np.unique(all_eps)
     rng = np.random.default_rng(0)

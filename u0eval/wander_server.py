@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""Off-corridor DAgger collector policy: wander random vantage points around the
-grasp object so the harness's recorder captures close-range views from entry
-angles the expert corridor never visits. Labels are synthesized OFFLINE from the
-recorded privileged poses (percept/synth_labels.py); the deployed head stays
-vision-only.
-
-Privileged reads (box + odom) are fine here: this server only GENERATES training
-data, exactly like the paper's expert collector. No torch, no learned model --
-a P velocity tracker is all the wandering needs.
-"""
 
 from __future__ import annotations
 
@@ -22,7 +12,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from uwam.control import AXIS_SIGN, attitude_pwm, vel_track_pwm  # noqa: E402
+from uwam.control import AXIS_SIGN, attitude_pwm, vel_track_pwm
 
 CHUNK = 16
 ARMED = np.array([0.0, 0.4965, 0.4965, 0.5056, 0.0], np.float64)
@@ -42,9 +32,8 @@ class Wander:
     def _sample_vantage(self, box, box_yaw):
         r = self.rng.uniform(0.12, 0.5) if self.rng.random() < 0.6 else self.rng.uniform(0.5, 1.1)
         th = self.rng.uniform(0, 2 * np.pi)
-        dz = self.rng.uniform(0.08, 0.45)  # above the object (world z down => shallower)
+        dz = self.rng.uniform(0.08, 0.45)
         tgt = box + np.array([r * np.cos(th), r * np.sin(th), -dz])
-        # mostly look at the object, sometimes随机朝向
         if self.rng.random() < 0.8:
             yaw = np.arctan2(box[1] - tgt[1], box[0] - tgt[0]) + self.rng.uniform(-0.5, 0.5)
         else:
@@ -68,7 +57,6 @@ class Wander:
         rpy = np.ravel(np.asarray(rpy, np.float64))[:3] if rpy is not None else np.zeros(3)
         v = np.ravel(np.asarray(dvl, np.float64))[:3] if dvl is not None else np.zeros(3)
         om = np.ravel(np.asarray(av, np.float64))[:3] if av is not None else np.zeros(3)
-        # new episode detection: box moved a lot -> resample immediately
         if self.last_box is None or np.linalg.norm(box - self.last_box) > 1.0:
             self.vantage = None
         self.last_box = box.copy()
@@ -123,7 +111,7 @@ def make_handler(policy):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 import traceback
                 traceback.print_exc()
                 body = json.dumps({"detail": str(e)}).encode()

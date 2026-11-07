@@ -1,23 +1,4 @@
 #!/usr/bin/env python3
-"""U0 + WAM fallback-layer server.
-
-Same /act HTTP contract as every other policy server. Arbitration:
-
-  - DVL valid (full sensing): pass the U0 action chunk through untouched, while
-    the WAM side only OBSERVES (updates its history window, sighted estimator
-    stream and hold anchor). By construction the fallback arm is identical to
-    U0 whenever nothing is wrong.
-  - DVL dropped: the outage is exogenous, directly observed evidence (a real
-    DVL reports loss of bottom-lock), so the takeover latches -- same logic as
-    the goal-change latch in the underwater stack. Inside the blind phase the
-    calibrated CUSUM gate keeps arbitrating hold vs replanning exactly as in
-    the standalone WAM arm. Arm joints hold their current positions (safe mode).
-
-Run under the SYSTEM python. The U0 service runs separately in the GR00T venv.
-
-Usage:
-  python3 u0eval/fallback_policy_server.py --port 8002 --u0-url http://127.0.0.1:8001/act
-"""
 
 from __future__ import annotations
 
@@ -33,7 +14,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from wam_policy_server import CHUNK, N_JOINTS, WamPolicy  # noqa: E402
+from wam_policy_server import CHUNK, N_JOINTS, WamPolicy
 
 
 class FallbackPolicy:
@@ -46,25 +27,12 @@ class FallbackPolicy:
         self.wam = WamPolicy(args)
         self.was_blind = False
         self.blind_joints = args.blind_joints
-        # Full sensing must cost exactly what U0 costs, otherwise the arm is not
-        # "U0 when the gate is closed": running the WAM observation inline added
-        # its forward pass to every tick and broke the 10 Hz chunk cadence
-        # (measured: fallback 65/80 vs U0 71/80 on locomotion). The observation
-        # produces no action, so it runs on a background worker instead; torch
-        # CUDA ops and the U0 HTTP wait both release the GIL, so they overlap.
         self._pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self._obs_future = None
         self.n_obs_done = 0
         self.n_obs_skipped = 0
 
     def _observe_async(self, obs):
-        """Queue the WAM sighted-phase observation off the response path.
-
-        A tick is dropped when the worker is still busy: the estimator keeps a
-        5-sample stream and the hold anchor is rebuilt from the observation's own
-        pwm history, so an occasional gap costs nothing, while a blocked response
-        would cost a control chunk.
-        """
         if self._obs_future is not None and not self._obs_future.done():
             self.n_obs_skipped += 1
             return
@@ -77,21 +45,19 @@ class FallbackPolicy:
     def _observe_body(self, obs):
         try:
             self.wam.observe_sighted(obs)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"[fallback] background observe failed: {e}", flush=True)
 
     def _wait_observe(self):
-        """Before a takeover, let any in-flight observation finish so the gate
-        anchor and waypoint index reflect the last sighted tick."""
         f = self._obs_future
         if f is not None and not f.done():
             try:
                 f.result(timeout=1.0)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
 
     def _u0_act(self, obs):
-        import json_numpy  # noqa: F401  (patched at import in server main)
+        import json_numpy
 
         r = self.requests.post(self.u0_url, json={"observation": obs}, timeout=30)
         r.raise_for_status()
@@ -108,16 +74,9 @@ class FallbackPolicy:
             self._observe_async(obs)
             try:
                 return [self._u0_act(obs), {"arm": "u0"}]
-            except Exception as e:  # noqa: BLE001
-                # VLA service down is itself a takeover trigger (fail-operational)
+            except Exception as e:
                 print(f"[fallback] U0 unreachable ({e}) -> WAM takes over", flush=True)
                 return self.wam.act(obs)
-        # Mode-aware takeover: the VLA's manipulation is wrist-camera visual servoing and does not
-        # consume the DVL, while WAM's grasp primitive is the weaker controller. Measured on the
-        # paper-scale blocks: naive takeover on grasp tasks under dropout 11/160 (7 %), U0 left in
-        # charge 30-57 %. So the takeover is taken only when the task's competence depends on the
-        # lost sensor (locomotion); for grasp / transfer the VLA keeps every channel and WAM stays
-        # a silent monitor (observing, ready for the fail-operational trigger above).
         if getattr(self.wam, "mode", "nav") in ("grasp", "transfer"):
             if not self.was_blind:
                 print(f"[fallback] DVL DROPOUT observed in {self.wam.mode}: manipulation does not "
@@ -126,7 +85,7 @@ class FallbackPolicy:
             self._observe_async(obs)
             try:
                 return [self._u0_act(obs), {"arm": "u0", "mode_aware": True}]
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 print(f"[fallback] U0 unreachable ({e}) -> WAM takes over", flush=True)
                 return self.wam.act(obs)
         if not self.was_blind:
@@ -138,14 +97,11 @@ class FallbackPolicy:
         action = self.wam.blind_act(obs)
         joints_done = False
         if self.blind_joints == "u0":
-            # split-channel fallback: WAM drives the thrusters (the channel that
-            # depends on the dead sensor); the VLA keeps commanding the arm, whose
-            # wrist-camera manipulation does not consume DVL
             try:
                 u0_action = self._u0_act(obs)
                 action[0]["action.joint_pos"] = np.asarray(u0_action["action.joint_pos"])
                 joints_done = True
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 print(f"[fallback] U0 joints unavailable ({e}); holding joints", flush=True)
         if not joints_done:
             jp = obs.get("state.joint_pos")
@@ -199,7 +155,7 @@ def make_handler(policy):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 import traceback
 
                 traceback.print_exc()

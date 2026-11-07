@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# Deploy the blind-path fixes (AHRS yaw from IMU attitude + pressure depth) and
-# rerun every WAM / fallback dropout block completed so far, single caliber:
-#   pause at block boundary -> install bridge -> restart wam+fallback servers ->
-#   archive old dropout results -> relaunch the resumable runner (it redoes the
-#   archived blocks in task order, then continues with follow_boat + grasp).
 set -uo pipefail
 WS=/hy-tmp/underwater_wam
 LOG=/hy-tmp/logs/u0eval

@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# LeRobot-family baselines (pi05 / xvla / smolvla / fastwam) evaluated with RECURRENT inference: the
-# bridge executes EXEC_STEPS steps (0.1 s each) of every predicted chunk and re-queries the policy,
-# instead of the 16-step (1.6 s) open-loop chunk that GR00T / U0 were trained for. USIM's protocol for
-# pi0.5 is exactly this (10 Hz recurrent inference, first step of the chunk executed).
-# Archives under <arm>_<full|drop<T>s_zero>_rec<EXEC_STEPS>/<task>/, USIM's trial allocation (40 per
-# goto / grasp / transport task, 20 per scan / inspect / follow) unless NEP is given.
-#   usage: ARM=xvla [NEP=20] lerobot_rec_queue.sh <inst: local|A|B> <gpu> <full|drop> <exec_steps> <task ...>
 set -uo pipefail
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 WS=/hy-tmp/underwater_wam; LOG=/hy-tmp/logs/u0eval; export PYTHONPATH=$WS; cd $WS; mkdir -p $LOG
@@ -16,7 +9,7 @@ RUNS=$U0ENV/dataset/eval_runs
 drop_for() { case "$1" in goto_*) echo 8 ;; scan_*|inspect_*) echo 40 ;; follow_*) echo 20 ;; pick_*|transfer_*) echo 30 ;; *) echo 20 ;; esac; }
 nep_for() { case "$1" in goto_*|pick_*|transfer_*) echo 40 ;; *) echo 20 ;; esac; }
 healthy() { curl -s -m 5 "http://127.0.0.1:$1/health" 2>/dev/null | grep -q healthy; }
-valid_eps() {  # <results.csv>: unique episodes whose judge log has >= 3 data rows
+valid_eps() {
   [ -f "$1" ] || { echo 0; return; }
   local d; d=$(dirname "$1"); local n=0
   for e in $(tail -n +2 "$1" | cut -d, -f1 | sort -u); do
@@ -31,7 +24,6 @@ for i in $(seq 1 90); do healthy "$PORT" && break; sleep 10; done
 healthy "$PORT" || { echo "REC_SERVER_FAILED $ARM $INST $PORT $(date +%m-%d\ %H:%M:%S)"; exit 1; }
 echo "$ARM server up on $PORT (instance $INST, gpu $GPU, exec_steps $ES) $(date +%m-%d\ %H:%M:%S)"
 for t in "$@"; do
-  # RUN_TAG (e.g. v2_) distinguishes checkpoint rounds in the archive name: <arm>_<RUN_TAG><cond>_rec<ES>
   if [ "$KIND" = full ]; then D=-1.0; COND="${RUN_TAG:-}full_rec${ES}"; else D=$(drop_for "$t"); COND="${RUN_TAG:-}drop${D}s_zero_rec${ES}"; fi
   n=${NEP:-$(nep_for "$t")}
   f="$RUNS/${ARM}_${COND}/$t/results.csv"

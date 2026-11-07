@@ -1,13 +1,3 @@
-"""
-Learned forward kinematics of the Alpha 5 arm in the VEHICLE BODY frame, fitted on probe
-recordings (u0eval/arm_probe_server.py -> percept/pack_grasp_recordings.py):
-
-    q (5: gripper, b, c, d, e in bridge order) -> end-effector position (3) and rotation (3x3)
-
-A small MLP is exact enough (mm) and differentiable, so the grasp planner can score joint
-candidates with fk(q) - obj_body inside the CEM / gradient loop. Also fits the first-order
-joint-tracking constant used by the structured world model's arm prior.
-"""
 from __future__ import annotations
 
 import json
@@ -23,7 +13,7 @@ from .models import MLP
 class ArmKin(nn.Module):
     def __init__(self, hidden: int = 256):
         super().__init__()
-        self.net = MLP(4, 3 + 6, hidden, depth=3)   # b, c, d, e -> xyz + first two rotation columns
+        self.net = MLP(4, 3 + 6, hidden, depth=3)
         self.register_buffer("q_mean", torch.zeros(4))
         self.register_buffer("q_std", torch.ones(4))
         self.register_buffer("p_mean", torch.zeros(3))
@@ -34,12 +24,11 @@ class ArmKin(nn.Module):
         out = self.net(q)
         pos = out[..., :3] * self.p_std + self.p_mean
         a, b = out[..., 3:6], out[..., 6:9]
-        # Gram-Schmidt -> proper rotation
         c1 = a / a.norm(dim=-1, keepdim=True).clamp_min(1e-6)
         b2 = b - (c1 * b).sum(-1, keepdim=True) * c1
         c2 = b2 / b2.norm(dim=-1, keepdim=True).clamp_min(1e-6)
         c3 = torch.cross(c1, c2, dim=-1)
-        R = torch.stack([c1, c2, c3], dim=-1)   # columns
+        R = torch.stack([c1, c2, c3], dim=-1)
         return pos, R
 
     @torch.no_grad()

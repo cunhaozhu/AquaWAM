@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""OU collection on official u0env, locked to the WAM 10 Hz (DVL) clock.
-
-Steps on each new /bluerov2/dvl_sim message so Δt is simulation time, not wall
-clock. Run with RoboStack python:
-
-  source /hy-tmp/envs/ros_env/setup.bash
-  source /hy-tmp/u0env/ros_ws/devel/setup.bash
-  python /hy-tmp/underwater_wam/scripts/collect_ou.py --all --frames 2700
-"""
 
 from __future__ import annotations
 

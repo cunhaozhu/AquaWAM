@@ -1,16 +1,4 @@
 #!/usr/bin/env bash
-# Put OUR method first: deploy the scene-diverse core (best_scenes + vel_ens_scenes,
-# attitude loop, estimator, coast, live-target follow, gripper-servo grasp) and redo
-# every WAM / fallback block. U0 grasp blocks resume afterwards (resumable runner
-# skips what is already done).
-#
-#   1. pause at the current block boundary (U0 grasp block finishes as an orphan)
-#   2. restart wam + fallback on the new core at V_MAX x1.8 (nav 0.45 m/s)
-#   3. PILOT goto_water_tower / wam / full, 5 eps: >= 3/5 keeps the speed,
-#      otherwise restart at x1.0 (new core only)
-#   4. archive every WAM full block and every WAM/fallback blind block of the
-#      previous calibers (U0 rows and fallback full rows stay)
-#   5. relaunch the resumable runner for all arms: locomotion redo, then grasp
 set -uo pipefail
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 WS=/hy-tmp/underwater_wam
@@ -21,7 +9,7 @@ mkdir -p "$LOG" "$ARCH"
 tally() { awk -F, 'NR>1{n++; if($2=="success") s++} END{print s+0"/"n}' "$1"; }
 ok_count() { awk -F, 'NR>1 && $2=="success"{s++} END{print s+0}' "$1"; }
 
-restart_servers() {  # $1 = vmax scale
+restart_servers() {
   for p in $(pgrep -f '[w]am_policy_server.py --port 8000|[f]allback_policy_server' || true); do
     kill "$p" 2>/dev/null || true
   done

@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Re-run the scan blocks for wam/fallback with the yaw-clamp fix (the pilot's
-# scan numbers for those arms predate it). 8 blocks x N episodes.
 set -uo pipefail
 NEP=${1:-5}
 WS=/hy-tmp/underwater_wam

@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Bring up the NVIDIA-GL Stonefish scene, wait for the DVL, then run "$@" under RoboStack python.
-# Usage: bash scripts/with_sim.sh python /path/script.py --flag
 set -euo pipefail
 SCN=/hy-tmp/data/ou_explore/scn/bluerov2_test_runtime.scn
 LOG=/hy-tmp/logs/u0env_nvidia.log
@@ -41,7 +39,6 @@ set -u
 export ROS_HOSTNAME=localhost ROS_MASTER_URI=http://localhost:11311
 export PYTHONPATH=/hy-tmp/underwater_wam:/usr/local/lib/python3.11/dist-packages:${PYTHONPATH:-}
 
-# Require DVL *and* odometry, twice in a row, so a dying previous instance cannot look ready.
 streak=0
 for i in $(seq 1 90); do
   if timeout 3 rostopic echo -n 1 /bluerov2/dvl_sim >/dev/null 2>&1 \
@@ -60,9 +57,6 @@ for i in $(seq 1 90); do
   fi
 done
 
-# The uniform ocean current on /bluerov2/ocean_current is applied to the vehicle
-# once Stonefish current simulation is on. Set UWAM_ENABLE_CURRENTS=1 to call
-# /stonefish_simulator/enable_currents before the task starts.
 if [[ "${UWAM_ENABLE_CURRENTS:-0}" == "1" ]]; then
   timeout 15 rosservice call /stonefish_simulator/enable_currents || echo "WARNING: enable_currents failed"
 fi

@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""Shadow replay of the navigation perception head over a recorded eval episode.
-
-Feeds the recorded right (ego) + hand (wrist) frames through the exact deployment path
-(PerceptGoal.predict_nav) and compares the predicted body-frame goal with the waypoint the
-vehicle was actually tracking (reference path + recorded odometry, 0.9 m advance radius, the
-WAM follower's rule). Reports bearing / range error by range bucket -- on the deployed arm's own
-trajectory distribution, i.e. including the covariate shift away from the USIM expert.
-
-  python3 diag_percept_nav_replay.py --episode <eval_runs/<arm>_<cond>/<task>/episode0> [--stride 3]
-"""
 from __future__ import annotations
 
 import argparse
@@ -22,7 +12,7 @@ import numpy as np
 from PIL import Image
 
 sys.path.insert(0, "/hy-tmp/underwater_wam")
-from percept.goal_head import PerceptGoal  # noqa: E402
+from percept.goal_head import PerceptGoal
 
 
 def quat_yaw(q):
@@ -60,7 +50,6 @@ def main() -> None:
         pos = np.array([od["position"]["x"], od["position"]["y"], od["position"]["z"]])
         yaw = quat_yaw([od["orientation"][c] for c in "xyzw"])
         instr = d.get("instruction", "")
-        # waypoint the follower would be tracking
         while wp_idx < len(traj) - 1 and np.linalg.norm(traj[wp_idx, :3] - pos) <= args.advance:
             wp_idx += 1
         dw = traj[wp_idx, :3] - pos
@@ -90,9 +79,7 @@ def main() -> None:
     print(f"  ALL bearing med {np.median(b):.1f} deg, frac < 20 deg: {(b < 20).mean():.2f}, "
           f"frac < 45 deg: {(b < 45).mean():.2f}")
 
-    # --- visual-inertial goal filter: fuse the RAW per-frame predictions over the recorded poses
-    # and compare the fused world-frame goal with the tracked node ---
-    from uwam.goal_filter import GoalFilter  # noqa: PLC0415
+    from uwam.goal_filter import GoalFilter
     gf = GoalFilter()
     fused_err, single_err, fused_b = [], [], []
     for (rng_i, gt_i, _, raw_i), (pos_i, yaw_i, node_i) in zip(rows, poses):

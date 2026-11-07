@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""Offline smoke of the percept-goal server path: replay a real USIM test pick
-episode's frames through WamPolicy.act() (goal-source=percept) and check that
-goals track and the gripper trigger fires. No simulator, no privileged reads.
-"""
 import json
 import sys
 import types
@@ -13,10 +9,10 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import pyarrow.parquet as pq  # noqa: E402
+import pyarrow.parquet as pq
 
-from percept.goal_head import _decode  # noqa: E402
-from wam_policy_server import WamPolicy  # noqa: E402
+from percept.goal_head import _decode
+from wam_policy_server import WamPolicy
 
 args = types.SimpleNamespace(
     ckpt="/hy-tmp/models/uwam/best_scenes.pt",
@@ -29,7 +25,7 @@ Path(args.eval_root).mkdir(parents=True, exist_ok=True)
 policy = WamPolicy(args)
 
 root = Path("/hy-tmp/data/usim/test")
-EP = 34  # "Pick up the pipe", shadow close-MAE 3.4 cm
+EP = 34
 chunk = f"chunk-{EP // 1000:03d}"
 t = pq.read_table(root / "data" / chunk / f"episode_{EP:06d}.parquet")
 st = np.array([np.asarray(x, np.float32) for x in t.column("observation.state").to_pylist()])
@@ -78,9 +74,7 @@ print(json.dumps({
 }))
 assert policy.pg_grasped, "gripper never closed on a successful expert pick episode"
 
-# --- navigation head: replay a "Go to the water tower" episode; the vision goal must steer
-# toward the labelled expert waypoint (bearing) and the sighted + blind paths must both run ---
-import pyarrow as pa  # noqa: E402
+import pyarrow as pa
 
 tasks = {json.loads(l)["task_index"]: json.loads(l)["task"] for l in open(root / "meta" / "tasks.jsonl")}
 nav_ep = None
@@ -100,7 +94,7 @@ sts, labs = st[::3][:k], lab[::3][:k]
 policy._reset_episode(None)
 bearing_err, n_far = [], 0
 for i in range(k):
-    blind = i >= k // 2  # second half: DVL dropout, goal must still come from vision
+    blind = i >= k // 2
     obs = {
         "video.ego": ego[i][None], "video.wrist": wrist[i][None],
         "state.joint_pos": np.zeros((1, 5), np.float32),

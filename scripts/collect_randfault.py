@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""Randomized thruster-fault collection on the 10 Hz DVL clock.
-
-The fixed regimes only ever show four eta patterns, so an eta-regression head trained on them
-memorises patterns instead of estimating per-thruster health, and the fault-severity sweep would
-test severities the model has never seen. Here every segment draws a fresh fault (which thrusters,
-how severe), the npz stores the COMMANDED pwm plus the full eta schedule as supervision, and
-apply_efficiency stays purely on the plant side.
-"""
 
 from __future__ import annotations
 
@@ -56,7 +48,7 @@ def sample_eta(rng: np.random.Generator) -> np.ndarray:
 
 def collect_episode(bridge: SimBridge, n_frames: int, seed: int) -> dict:
     rng = np.random.default_rng(seed)
-    pwm = np.zeros((n_frames, 8), np.float32)      # commanded
+    pwm = np.zeros((n_frames, 8), np.float32)
     eta_log = np.ones((n_frames, 8), np.float32)
     dvl = np.zeros((n_frames, 3), np.float32)
     imu_av = np.zeros((n_frames, 3), np.float32)

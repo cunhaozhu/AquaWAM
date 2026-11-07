@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""Per-call latency of U0 / GR00T N1.5 (3B) through the same policy object the evaluation service uses
-(gr00t.model.policy.Gr00tPolicy, data config u0_bot, new_embodiment, 4 denoising steps): synthetic
-observation of the production shapes -> one 16-step action chunk.
-  python3 bench_u0_latency.py <model_dir> [repeats] [out.json]   (run inside the gr00t environment)"""
 import json, platform, sys, time
 from pathlib import Path
 
@@ -10,8 +6,8 @@ import numpy as np
 import torch
 
 model_dir = sys.argv[1]; n = int(sys.argv[2]) if len(sys.argv) > 2 else 20; out = sys.argv[3] if len(sys.argv) > 3 else ""
-from gr00t.experiment.data_config import load_data_config  # noqa: E402
-from gr00t.model.policy import Gr00tPolicy  # noqa: E402
+from gr00t.experiment.data_config import load_data_config
+from gr00t.model.policy import Gr00tPolicy
 
 data_config = load_data_config("u0_bot")
 t0 = time.time()
@@ -36,7 +32,7 @@ for _ in range(n):
     torch.cuda.synchronize(); t = time.perf_counter(); a = policy.get_action(obs); torch.cuda.synchronize(); ts.append(1e3 * (time.perf_counter() - t))
 arr = np.asarray(ts)
 n_params = sum(p.numel() for p in policy.model.parameters())
-act = a[0] if isinstance(a, (tuple, list)) else a      # get_action returns (action_dict, info) in the U0 fork
+act = a[0] if isinstance(a, (tuple, list)) else a
 keys = sorted(act.keys()) if isinstance(act, dict) else []
 res = {"model": model_dir, "params_B": n_params / 1e9, "load_s": load_s, "median_ms": float(np.median(arr)), "p95_ms": float(np.percentile(arr, 95)),
        "n": n, "peak_mem_gb": torch.cuda.max_memory_allocated() / 2**30, "action_keys": keys,

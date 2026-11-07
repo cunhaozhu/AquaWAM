@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Aggregate the multi-seed repeats of the two discriminating experiments.
-
-Reads closed_loop_fault_mid_s*.json / closed_loop_goalstep_s*.json, reports per-arm
-mean +/- std across seeds, per-trial win counts, and the paired per-trial difference
-(wam minus the best baseline on the same regime/goal/seed).
-"""
 
 from __future__ import annotations
 

@@ -1,26 +1,4 @@
 #!/usr/bin/env python3
-"""
-USIM-Hard P5: can the world model predict the VLA's failures?
-
-Every U0 manipulation episode under DVL dropout (u0_drop30s_zero, 11 tasks x 40) has a 10 Hz
-sensor log written by the extended bridge (episode_i_sensors.npz: true + effective DVL, IMU,
-pressure, altitude, commanded PWM, odometry, AHRS).  U0 never saw the WAM; the WAM never
-touched these episodes.  We replay the log through the frozen core exactly as the policy
-server would build its windows and ask, per episode, how "surprised" the world model is by
-what the VLA does to the vehicle:
-
-  imu_res   mean |s_hat - s| on the always-live IMU channels (gyro + accel) over the 0.5 s
-            rollout of the commanded PWM  -- prediction error of the core
-  epi_sigma mean ensemble disagreement (epistemic sigma) of the dead-reckoning estimator
-            during the blind phase        -- the trust gate's own statistic
-  dr_err    |v_hat - v_true| during the blind phase (privileged truth; diagnostic only)
-  baselines: mean speed, mean |PWM|, mean |gyro|.
-
-Features are computed on the first `--horizon` seconds after the first action (default 60 s;
-U0 successes typically finish at 50-70 s, timeouts at 185 s), i.e. BEFORE the outcome is
-known, and reported as AUROC for predicting `timeout`, pooled and after per-task z-scoring
-(removes the between-task difficulty confound).  Writes a JSON next to the results doc.
-"""
 from __future__ import annotations
 
 import argparse
@@ -33,14 +11,13 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from uwam.control import SamplingMPC  # noqa: E402
-from uwam.direct import load_core  # noqa: E402
+from uwam.control import SamplingMPC
+from uwam.direct import load_core
 
 L, K = 16, 5
 
 
 def auroc(score: np.ndarray, label: np.ndarray) -> float:
-    """Mann-Whitney AUROC of `score` for label==1 (ties count half)."""
     pos, neg = score[label == 1], score[label == 0]
     if len(pos) == 0 or len(neg) == 0:
         return float("nan")
@@ -95,13 +72,11 @@ def episode_features(log, model, dyn_norm, pwm_norm, mpc, device, t_max: float):
     st, af = f(dyn_norm(s_t)), f(pwm_norm(a_fut))
     d = model.disturbance(hs, ha)
     s_hat, _, _ = model.rollout(st, af, d)
-    res = (s_hat - f(dyn_norm(s_fut))).abs()  # normalized units
+    res = (s_hat - f(dyn_norm(s_fut))).abs()
     imu_res = res[:, :, 3:9].mean(dim=(1, 2)).cpu().numpy()
-    # DVL channels of the prediction vs privileged truth (the effective DVL is zero when dropped)
     v_hat = s_hat[:, :, 0:3].cpu().numpy() * dyn_norm.std[0:3] + dyn_norm.mean[0:3]
     dvl_res = np.linalg.norm(v_hat - v_true_fut, axis=-1).mean(axis=1)
 
-    # dead-reckoning ensemble on the DVL-masked, canonicalized window (as the server does)
     heads = mpc._vel_ens
     epi = dr_err = None
     if heads:
@@ -166,7 +141,7 @@ def main():
                 continue
             try:
                 feats = episode_features(load_log(f_), model, dyn_norm, pwm_norm, mpc, device, args.horizon)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 print(f"  skip {task}/{ep}: {e}", flush=True)
                 continue
             if feats is None:
@@ -192,7 +167,6 @@ def main():
                 z[m] = (x[m] - x[m].mean()) / x[m].std()
         okz = np.isfinite(z)
         a_z = auroc(z[okz], fail[okz])
-        # per-task AUROCs (only tasks with both outcomes), median
         per = []
         for t in np.unique(tasks):
             m = (tasks == t) & ok

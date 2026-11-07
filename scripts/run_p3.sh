@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# P3 evaluation batch on the finalized model+controller:
-#   gate (5 arms) -> blind main -> fault_mid x3 seeds -> goal_step x3 seeds
-#   -> blackout-duration sweep -> fault-severity sweep
 set -uo pipefail
 CKPT="${CKPT:-/hy-tmp/models/uwam/best_ou.pt}"
 LOGS=/hy-tmp/logs/uwam

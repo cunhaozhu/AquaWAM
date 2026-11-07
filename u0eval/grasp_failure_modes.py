@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""Failure-mode breakdown of grasp blocks from the judge's 1 Hz logs (episode_i_data.csv:
-dx, dy, dz, distance, gripper joint, gripper effort). For every non-success episode: best
-distance reached, |dx| |dy| |dz| at that moment, max effort, and how many logged seconds the
-POSITION test alone passed (d <= 4 cm, |dx| < 3.5 cm, |dy| < 1 cm) vs. position AND grip."""
 import csv
 import glob
 import os

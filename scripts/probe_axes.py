@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""Calibrate the mixer: per-axis sign and reachable DVL speed, with leveling + homing on.
-
-Run this before closed_loop.py; it is the ground truth for AXIS_SIGN and for the goal set.
-"""
 
 from __future__ import annotations
 
@@ -22,7 +18,6 @@ TARGET_DT = 0.1
 
 
 def run_segment(bridge: SimBridge, u_fn, seconds: float, tail: float = 2.0) -> dict:
-    """Drive u_fn(state) for `seconds` of sim time; average DVL over the last `tail` seconds."""
     t0 = None
     rows = []
     while True:
@@ -69,7 +64,6 @@ def main():
     report["home_initial"] = bridge.home()
     print("home", json.dumps(report["home_initial"]), flush=True)
 
-    # 1) open-loop unit thrust per axis: does +thrust move the DVL axis positively?
     for axis, name in enumerate("xyz"):
         for sgn in (1.0, -1.0):
             bridge.home()
@@ -81,7 +75,6 @@ def main():
             report["segments"][key] = run_segment(bridge, lambda st, u=u: u, args.seconds)
             print(key, json.dumps(report["segments"][key]), flush=True)
 
-    # 2) closed-loop velocity tracking through the mixer at the goals we actually score
     for goal in ([0.25, 0, 0], [0, 0.20, 0], [0, 0, 0.15], [0.12, 0, 0], [0, 0.12, 0]):
         g = np.array(goal, np.float32)
         bridge.home()

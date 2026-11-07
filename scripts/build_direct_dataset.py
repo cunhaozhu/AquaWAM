@@ -1,19 +1,4 @@
 #!/usr/bin/env python3
-"""
-Teacher labels for the amortized action head (uwam/direct.py).
-
-Windows (16-step history, current state) are drawn from every dynamics source the core
-was trained on -- USIM expert demos, OU exploration, scene collection, deployment
-recordings, MPC-in-the-loop dumps -- and paired with a sampled body-frame velocity goal.
-A LARGE sampling MPC (512 candidates x 3 CEM rounds; the online planner runs 128 x 2)
-solves each (window, goal) through the frozen core; its best 0.5 s PWM sequence and
-imagined cost are the targets.  Attitude leveling is left out (rpy=None): the server
-strips roll/pitch/yaw moments from the planned sequence and re-adds deterministic
-leveling afterwards, so the head only has to learn the translational decision.
-
-Output: <out>.npz with hist_s [N,16,19], hist_a [N,16,8], s_t [N,19], v_goal [N,3],
-        seq [N,5,8] (raw PWM), J [N], src [N] (source id).
-"""
 from __future__ import annotations
 
 import argparse
@@ -25,21 +10,18 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from uwam.control import SamplingMPC  # noqa: E402
-from uwam.data import load_ou_split, load_split  # noqa: E402
-from uwam.direct import load_core  # noqa: E402
+from uwam.control import SamplingMPC
+from uwam.data import load_ou_split, load_split
+from uwam.direct import load_core
 
 
 def sample_goal(rng: np.random.Generator) -> np.ndarray:
-    """Goal distribution matching the server's task goals: cruise-speed horizontal
-    vectors dominate, plus hover and pure-heave regimes (grasp / depth legs)."""
     u = rng.random()
     if u < 0.15:
         return np.zeros(3, np.float32)
     if u < 0.30:
         return np.array([0.0, 0.0, rng.choice([-1, 1]) * rng.uniform(0.05, 0.3)], np.float32)
     ang = rng.uniform(-np.pi, np.pi)
-    # forward-biased: 75 % of horizontal goals point into the front half-plane
     if rng.random() < 0.75:
         ang = rng.uniform(-np.pi / 2, np.pi / 2)
     mag = rng.uniform(0.05, 0.5)
@@ -71,7 +53,7 @@ def main():
     L, K = cfg.model.history_len, cfg.model.horizon_dyn
 
     print("loading episodes ...", flush=True)
-    sources = []  # (name, [episodes])
+    sources = []
     if args.usim_episodes > 0:
         eps = load_split(Path(args.usim), "train", cfg.schema, max_episodes=args.usim_episodes)
         sources.append(("usim", eps))
@@ -90,7 +72,6 @@ def main():
     for name, eps in sources:
         print(f"  {name}: {len(eps)} episodes, {sum(len(e.pwm) for e in eps)} frames", flush=True)
 
-    # allocation: usim_share to USIM, the rest split evenly over the play/deployment sources
     n_usim = int(args.n * args.usim_share) if sources and sources[0][0] == "usim" else 0
     others = [s for s in sources if s[0] != "usim"]
     n_other = (args.n - n_usim) // max(1, len(others))

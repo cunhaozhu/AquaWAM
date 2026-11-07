@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Multi-seed repeats of the two discriminating experiments (fault-during-blackout, goal-step).
 set -uo pipefail
 CKPT="${CKPT:-/hy-tmp/models/uwam/best_ou.pt}"
 SEEDS="${SEEDS:-0 1 2}"

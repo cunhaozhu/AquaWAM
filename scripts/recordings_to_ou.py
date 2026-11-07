@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""Convert eval-harness episode recordings (10 Hz pkl per frame) into OU-schema
-npz files so the estimator can be trained on the DEPLOYMENT distribution:
-real task scenes (0.5-17 m depth), U0-driven windows with saturated thrusters
-and 0.4-0.7 m/s speeds, the bridge's smoothed PWM. The raw DVL in the pkl is
-the simulator truth even in dropout episodes (the recorder bypasses the bridge).
-
-Units follow the OU npz convention consumed by uwam.data.load_ou_split:
-pressure raw Pa, dvl_h metres, pwm the published command (pwm_is_commanded).
-"""
 from __future__ import annotations
 
 import argparse
@@ -33,11 +24,6 @@ def _yaw(q):
 
 
 def load_ep(ep_dir: Path):
-    """10 Hz arrays from a harness recording. Besides the vehicle channels, emits the manipulator
-    extension used by the arm/object world model: joint_pos / joint_v (5, bridge order a..e),
-    joint_cmd (5: recorded arm targets b..e; the gripper target is not logged -> next actual
-    gripper angle) and obj_body (6: object position in the body frame, cos/sin of the object yaw
-    relative to the vehicle, valid flag; zeros when the scene has no object)."""
     pk = sorted((q for q in ep_dir.glob("*.pkl") if q.stem.isdigit()), key=lambda p: int(p.stem))
     out = {k: [] for k in ("pwm", "dvl", "imu_av", "imu_la", "pressure", "dvl_h", "joint_pos", "joint_v", "joint_cmd", "obj_body")}
     for p in pk:
@@ -84,7 +70,6 @@ def load_ep(ep_dir: Path):
     T = len(res["pwm"])
     if T:
         jc = res["joint_cmd"]
-        # gripper target = next actual gripper angle; arm targets hold the last known value when absent
         jc[:, 0] = np.concatenate([res["joint_pos"][1:, 0], res["joint_pos"][-1:, 0]])
         for j in range(1, 5):
             col = jc[:, j]
@@ -140,8 +125,6 @@ def main():
         T = len(rec["pwm"])
         if T < args.min_frames:
             continue
-        # simulator blow-ups (vehicle teleported to ~3e5 m) leave |accel| in the
-        # thousands; they must not enter the estimator's training set
         ob = rec.get("obj_body")
         obj_blow = ob is not None and len(ob) and (not np.isfinite(ob[:, :3]).all() or np.abs(ob[:, :3]).max() > 5.0)
         if np.linalg.norm(rec["imu_la"], axis=1).max() > 30.0 or np.abs(rec["dvl"]).max() > 5.0 or obj_blow:

@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""Calibrate the CUSUM trust gate from held-out data instead of hand-tuning.
-
-Builds z streams that mirror the deployment computation exactly (self-filled blind
-history, n-tick smoothing, sigma from the NLL ensemble, anchor = the estimator's own
-pre-dropout output):
-  null streams  = windows with NO change during the simulated blackout -> false alarms
-  shift streams = randomized-fault windows with a real mid-blackout eta change -> delay
-then grid-searches (kappa, h) for the smallest detection delay subject to a
-false-alarm budget. Output: gate_calib.json consumed by closed_loop.py.
-"""
 
 from __future__ import annotations
 
@@ -21,11 +11,11 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from uwam.config import Cfg, enable_arm  # noqa: E402
-from uwam.control import SamplingMPC  # noqa: E402
-from uwam.data import RunningNorm, load_ou_split  # noqa: E402
-from uwam.gate import calibrate  # noqa: E402
-from uwam.models import DynamicsWAM  # noqa: E402
+from uwam.config import Cfg, enable_arm
+from uwam.control import SamplingMPC
+from uwam.data import RunningNorm, load_ou_split
+from uwam.gate import calibrate
+from uwam.models import DynamicsWAM
 
 
 def _load_mpc(ckpt: Path, device: str) -> SamplingMPC:
@@ -46,14 +36,9 @@ def _load_mpc(ckpt: Path, device: str) -> SamplingMPC:
 
 
 def build_stream(mpc, dyn, pwm, t0, T_blind, L, n_smooth, floor):
-    """Replay the deployment estimator over one window; return the z stream.
-
-    dyn rows carry the recorded state; during the blind part the DVL columns are
-    self-filled with the estimator's own output, exactly as in closed_loop.py.
-    """
     vel_std = mpc.dyn_norm.std[0:3].astype(np.float64)
-    hist = dyn[t0 - L - n_smooth:t0 + T_blind].copy()  # local buffer we can overwrite
-    off = L + n_smooth                                  # index of t0 inside `hist`
+    hist = dyn[t0 - L - n_smooth:t0 + T_blind].copy()
+    off = L + n_smooth
     est_sighted, est_hist, zs = [], [], []
     anchor = None
     for k in range(-n_smooth, T_blind):
@@ -67,10 +52,10 @@ def build_stream(mpc, dyn, pwm, t0, T_blind, L, n_smooth, floor):
         sd_alea, sd_epi = ens[1].astype(np.float64), ens[2].astype(np.float64)
         if k < 0:
             est_sighted.append(v_est)
-            continue                                    # sighted tick: recorded DVL stays
+            continue
         if anchor is None:
             anchor = np.mean(np.stack(est_sighted, 0), axis=0) / vel_std
-        hist[i, 0:3] = v_est                            # self-fill this blind tick
+        hist[i, 0:3] = v_est
         est_hist.append(v_est.copy())
         est_hist = est_hist[-n_smooth:]
         v_sm = np.mean(np.stack(est_hist, 0), axis=0) / vel_std
@@ -138,8 +123,6 @@ def main():
                 if np.abs(pre - pre[0]).max() < args.stat_tol:
                     z = build_stream(mpc, ep.dyn, ep.pwm, t0, T_blind, L, n_smooth, floor)
                     if z is not None:
-                        # effect size: how far the change actually moved the (smoothed,
-                        # normalized) velocity from its pre-change level
                         vs = np.stack([v[max(0, i - n_smooth + 1):i + 1].mean(0)
                                        for i in range(len(v))], 0) / vel_std
                         pre_m = vs[:tc].mean(0)

@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-"""HTTP /act server for OpenVLA-7B fine-tuned on USIM (baselines/openvla/finetune_openvla_usim.py),
-speaking the u0env bridge's protocol so it runs through the same harness, judges and dropout
-injection as every other row of Table 1.
-
-OpenVLA takes ONE image and the instruction and emits ONE 13-D action (joint_pos 5, pwm 8) per call by
-generating 13 action tokens (~0.36 s on a 4090, 910 ms on the Orin). The bridge always executes a
-16-step chunk, so the single action is repeated; run the queue with EXEC_STEPS=1 (rec1) so the bridge
-re-queries after every 0.1 s step, i.e. "as rapidly as possible", USIM's protocol for OpenVLA.
-Bridge contract (ros_gr00t_bridge_ext.py): POST /act with video.ego uint8 [1, 240, 320, 3], state.*,
-annotation.human.action.task_description [str]; reply [{"action.pwm": [16, 8], "action.joint_pos": [16, 5]}, {}].
-"""
 from __future__ import annotations
 
 import argparse
@@ -26,7 +15,7 @@ CHUNK, N_JOINTS = 16, 5
 
 class OpenVLAPolicy:
     def __init__(self, ckpt: str, device: str = "cuda", unnorm_key: str = "usim"):
-        from transformers import AutoModelForVision2Seq, AutoProcessor  # noqa: PLC0415
+        from transformers import AutoModelForVision2Seq, AutoProcessor
         t0 = time.time()
         self.processor = AutoProcessor.from_pretrained(ckpt, trust_remote_code=True)
         self.vla = AutoModelForVision2Seq.from_pretrained(ckpt, torch_dtype=torch.bfloat16, attn_implementation="sdpa",
@@ -60,11 +49,11 @@ class OpenVLAPolicy:
 
 
 def make_handler(policy):
-    import json_numpy  # noqa: PLC0415
+    import json_numpy
     json_numpy.patch()
 
     class H(BaseHTTPRequestHandler):
-        def log_message(self, *a):  # quiet
+        def log_message(self, *a):
             pass
 
         def do_GET(self):
@@ -73,11 +62,11 @@ def make_handler(policy):
         def do_POST(self):
             n = int(self.headers.get("Content-Length", 0))
             payload = json.loads(self.rfile.read(n))
-            obs = payload.get("observation", payload) if isinstance(payload, dict) else payload   # bridge posts {"observation": {...}}
+            obs = payload.get("observation", payload) if isinstance(payload, dict) else payload
             t0 = time.time()
             try:
                 out = policy.act(obs)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 print(f"[openvla-server] act failed: {type(e).__name__}: {e}", flush=True)
                 self.send_response(500); self.end_headers(); self.wfile.write(str(e).encode()); return
             dt = (time.time() - t0) * 1000

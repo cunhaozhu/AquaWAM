@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
-# Overnight gym batch: rename the sigma_p=0.02 artifacts to *_lo, build the 0.06 (main)
-# and 0.12 (hi) pointmass variants, then run the full suite on all pointmass variants
-# and reacher. Runs alongside the underwater chain (GPU is shared, both are small).
 set -uo pipefail
 WS=/hy-tmp/underwater_wam
 cd "$WS"
 
-# wait for the in-flight pointmass_lo headline run to finish
 while ps -eo cmd | grep -q "[c]losed_loop.py --env pointmass"; do sleep 20; done
 
 if [ -d /hy-tmp/data/gym_pointmass ] && [ ! -d /hy-tmp/data/gym_pointmass_lo ]; then

@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""Collect the planner's action distribution, on the same 10 Hz DVL clock as the OU set.
-
-Recovery doc section 8: a WAM trained only on expert PWM (USIM) and OU noise answers queries it
-has never seen, so its surge response is nearly action-independent. This collects exactly the
-commands SamplingMPC proposes -- the mixer P+FF family over a gain grid, plus saturated per-axis
-primitives -- across the same 6 regimes, written in the OU npz schema so load_ou_split reads it.
-"""
 
 from __future__ import annotations
 
@@ -28,7 +21,6 @@ DEPTH_KEEP = (1.5, 5.0)
 
 
 def sample_segment(rng: np.random.Generator) -> dict:
-    """One held command: either a mixer velocity goal or a saturated axis primitive."""
     if rng.random() < 0.2:
         thrust = np.zeros(3, np.float32)
         axis = int(rng.integers(0, 3))
@@ -50,11 +42,8 @@ def sample_segment(rng: np.random.Generator) -> dict:
 
 def collect_regime(bridge: SimBridge, regime, n_frames: int, seed: int,
                    act_every: int = 1, images: bool = False) -> dict:
-    """One regime. act_every > 1 puts the whole record on a coarser grid (0.1 * act_every s):
-    the command is recomputed and the state recorded only on acting ticks, with the command
-    held in between (that IS the coarse-rate plant)."""
     rng = np.random.default_rng(seed)
-    pwm = np.zeros((n_frames, 8), np.float32)      # commanded
+    pwm = np.zeros((n_frames, 8), np.float32)
     eta_log = np.ones((n_frames, 8), np.float32)
     dvl = np.zeros((n_frames, 3), np.float32)
     imu_av = np.zeros((n_frames, 3), np.float32)
@@ -90,7 +79,6 @@ def collect_regime(bridge: SimBridge, regime, n_frames: int, seed: int,
         cur, eta = regime_at(regime, t_rel)
         bridge.publish_current(cur)
         if tick % act_every != 0:
-            # hold the previous command between acting ticks (ZOH plant at the coarse rate)
             bridge.publish_pwm(apply_efficiency(u_cmd, eta))
             continue
         if seg_t0 is None:
@@ -103,7 +91,6 @@ def collect_regime(bridge: SimBridge, regime, n_frames: int, seed: int,
             u_cmd = vel_track_pwm(st["dvl"], seg["goal"], st["imu_av"], st["rpy"],
                                   kp=seg["kp"], kff=seg["kff"])
         bridge.publish_pwm(apply_efficiency(u_cmd, eta))
-        # OU convention: pwm[i] is the COMMAND issued at record tick i, applied until the next one
         pwm[i] = u_cmd
         eta_log[i] = np.asarray(eta, np.float32)
         dvl[i] = st["dvl"]

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Source RoboStack + u0env and optionally launch a headless USIM scene.
 set -euo pipefail
 
 U0="${U0:-/hy-tmp/u0env}"
@@ -11,11 +10,8 @@ export LD_LIBRARY_PATH="${U0}/build/stonefish_install/lib:${CONDA_PREFIX}/lib:${
 export ROS_HOSTNAME="${ROS_HOSTNAME:-localhost}"
 export ROS_MASTER_URI="${ROS_MASTER_URI:-http://localhost:11311}"
 
-# RoboStack/catkin setup scripts use empty-var tests that break under `set -u`.
 set +u
-# shellcheck disable=SC1091
 source "${CONDA_PREFIX}/setup.bash"
-# shellcheck disable=SC1091
 source "${U0}/ros_ws/devel/setup.bash"
 set -u
 export CMAKE_PREFIX_PATH="${U0}/build/stonefish_install:${CMAKE_PREFIX_PATH:-}"
@@ -26,7 +22,6 @@ if [[ "${1:-}" == "env" ]]; then
   exit 0
 fi
 
-# Headless display: prefer an existing NVIDIA X, else Xvfb + Mesa.
 if [[ -z "${DISPLAY:-}" ]]; then
   export DISPLAY=:99
 fi

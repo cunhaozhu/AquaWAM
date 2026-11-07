@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# P0: re-run only the losing fault_mid configs (surge goal, surge-side faults) with per-tick traces.
 set -uo pipefail
 CKPT="${CKPT:-/hy-tmp/models/uwam/best_ou.pt}"
 LOGS=/hy-tmp/logs/uwam

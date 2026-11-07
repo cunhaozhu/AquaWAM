@@ -1,19 +1,4 @@
 #!/usr/bin/env python3
-"""DAgger set for the NAVIGATION head: label recorded locomotion episodes with the waypoint the
-expert would be tracking and featurize them into the percept training schema.
-
-Per recorded frame (vla_data_collector pkl + images/right + images/hand|left): read the vehicle
-odometry, pick the reference-path node the expert planner would currently target (nodes are
-visited in order; a node counts as passed once the vehicle is within PASS_R of it or has moved
-beyond it along the path), express that node in the vehicle body frame and pair it with the
-DINOv2-base features of the recorded ego / wrist images. Follow-the-boat frames use the expert's
-standoff (3 m behind the boat along its heading, 0.5 m deeper) from the recorded boat odometry.
-
-Label = [dx dy dz roll pitch yaw_rel] like USIM's target_pos: yaw_rel is the waypoint's look-at yaw
-for scan / inspect and the bearing to the node for goto / follow.
-
-Output: <out>/dagger_nav_feats_base.npz (train_head.py --extra dagger_nav).
-"""
 from __future__ import annotations
 
 import argparse
@@ -27,11 +12,11 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from extract_feats import ENCODERS, featurize  # noqa: E402
+from extract_feats import ENCODERS, featurize
 
 TASK_IDX = {"charge station": 0, "scan the ship": 3, "inspect the pipeline": 4,
             "follow the boat": 5, "water tower": 8}
-PASS_R = 0.9   # follower's advance radius
+PASS_R = 0.9
 
 
 def yaw_wrap(a):
@@ -119,7 +104,6 @@ def main():
             else:
                 if traj is None or len(traj) == 0:
                     break
-                # advance the tracked node: passed if within PASS_R, or moved beyond it along the path
                 while k < len(traj) - 1:
                     node = traj[k, :3]
                     if np.linalg.norm(node - pos) <= PASS_R:

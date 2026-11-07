@@ -1,23 +1,4 @@
 #!/usr/bin/env python3
-"""USIM-Hard P1: re-score finished eval blocks under stricter path-adherence criteria.
-
-The official checker (eval_tracking.py) is lenient: goto ("navigation") only needs the endpoint
-within 1.0 m at any yaw; scan needs 5.0 m / 1.0 rad on 50% of the points; inspection 2.0 m / 0.5 rad
-on 75% of the points. It also terminates the episode the moment the endpoint ball is entered, so
-the *endpoint* error can never be measured below the official tolerance from logs alone.
-
-What the logs do allow (episode_<i>_data.csv, 2 Hz vehicle pose; episode_<i>_traj.npy, the
-reference waypoints) is a path-adherence re-score:
-
-  * closest approach to every *intermediate* waypoint (segment-interpolated), so "strict success at
-    tol t" = official success AND every intermediate waypoint passed within t metres
-  * optional yaw gate at the closest-approach sample
-  * median cross-track error (XTE) to the reference polyline
-  * path-length ratio (flown / reference polyline) for successful episodes
-
-Nothing is re-run; this is a pure function of the archived logs, so it applies identically to all
-arms (U0 / WAM / fallback / expert planner "collect_full").
-"""
 from __future__ import annotations
 
 import argparse
@@ -29,7 +10,6 @@ from pathlib import Path
 import numpy as np
 
 TOLS = (2.0, 1.5, 1.0, 0.75, 0.5)
-# official yaw tolerance per family (goto: yaw is not scored at all -> gate disabled)
 YAW_TOL = {"goto": None, "scan": 1.0, "inspect": 0.5, "follow": 0.5}
 ARM_RE = re.compile(r"^(u0|wam|wam_percept(?:_r\d+)?|fallback|collect)_(full|drop\d+s_(zero|freeze)|hard_[a-z0-9_]+)$")
 FAMILY = {"goto": "goto", "scan": "scan", "inspect": "inspect", "follow": "follow"}
@@ -64,7 +44,6 @@ def read_path(p: Path) -> tuple[np.ndarray, np.ndarray]:
 
 
 def seg_point_dist(a: np.ndarray, b: np.ndarray, q: np.ndarray) -> np.ndarray:
-    """Distance from point q to each segment a[k]->b[k]."""
     ab = b - a
     denom = np.maximum((ab * ab).sum(-1), 1e-12)
     t = np.clip(((q - a) * ab).sum(-1) / denom, 0.0, 1.0)
@@ -73,7 +52,6 @@ def seg_point_dist(a: np.ndarray, b: np.ndarray, q: np.ndarray) -> np.ndarray:
 
 
 def closest_approach(P: np.ndarray, Y: np.ndarray, wp: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Per-waypoint closest approach (segment-interpolated) and yaw error at the nearest sample."""
     if len(P) < 2:
         d = np.linalg.norm(P[:1] - wp[:, None, :3], axis=-1).min(1) if len(P) else np.full(len(wp), np.inf)
         return d, np.full(len(wp), np.inf)
@@ -84,7 +62,6 @@ def closest_approach(P: np.ndarray, Y: np.ndarray, wp: np.ndarray) -> tuple[np.n
         ds = seg_point_dist(a, b, w[:3])
         d[k] = ds.min()
         j = int(ds.argmin())
-        # nearest sample of the two segment endpoints
         i = j if np.linalg.norm(P[j] - w[:3]) <= np.linalg.norm(P[j + 1] - w[:3]) else j + 1
         e = (Y[i] - w[3] + np.pi) % (2 * np.pi) - np.pi
         yerr[k] = abs(e)
@@ -92,7 +69,6 @@ def closest_approach(P: np.ndarray, Y: np.ndarray, wp: np.ndarray) -> tuple[np.n
 
 
 def cross_track(P: np.ndarray, wp: np.ndarray) -> np.ndarray:
-    """Distance of every logged pose to the reference polyline (start pose -> wp_1 -> ... -> wp_M)."""
     poly = np.vstack([P[:1], wp[:, :3]])
     a, b = poly[:-1], poly[1:]
     return np.array([seg_point_dist(a, b, q).min() for q in P])
@@ -118,7 +94,7 @@ def score_block(block: Path, results: dict[int, tuple[str, float]]) -> list[dict
         if len(P) < 2:
             continue
         d, yerr = closest_approach(P, Y, wp)
-        inter = slice(0, len(wp) - 1)  # intermediate waypoints; endpoint is protocol-capped
+        inter = slice(0, len(wp) - 1)
         xte = cross_track(P, wp)
         official, dur = results[ep]
         rows.append({

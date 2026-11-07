@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# Promo-page recordings: the Table 1 models (same weights and protocol as their Table 1 blocks) re-run for a
-# few full-sensing episodes per task with EVERY episode's cameras kept, archived under <arm>_promo/<task>/ so
-# the Table 1 blocks are untouched. The left camera is dropped (the page uses the ego and wrist views).
-#   usage: ARM=<start_server.sh arm> [ES=<exec steps>] [NEP=2] promo_video_queue.sh <inst A|B|C|D> <gpu> <task ...>
-# Weights / protocol per model are passed as env: GR00T_CKPT, XVLA_CKPT, SMOLVLA_CKPT, OPENVLA_CKPT,
-# OPENVLA_UNNORM_KEY, PI05_OPENPI_CKPT, XLA_PYTHON_CLIENT_MEM_FRACTION; ES unset = the bridge default (16).
 set -uo pipefail
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 WS=/hy-tmp/underwater_wam; LOG=/hy-tmp/logs/u0eval; export PYTHONPATH=$WS; cd $WS; mkdir -p $LOG
@@ -18,7 +12,7 @@ PORT=$((PORT_WAM + 6))
 RUNS=$U0ENV/dataset/eval_runs
 ts() { date '+%m-%d %H:%M:%S'; }
 healthy() { curl -s -m 5 "http://127.0.0.1:$1/health" 2>/dev/null | grep -q healthy; }
-valid_eps() {  # unique episodes whose judge log has >= 3 data rows
+valid_eps() {
   [ -f "$1" ] || { echo 0; return; }
   local d; d=$(dirname "$1"); local n=0
   for e in $(tail -n +2 "$1" | cut -d, -f1 | sort -u); do

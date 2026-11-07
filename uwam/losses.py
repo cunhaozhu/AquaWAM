@@ -1,4 +1,3 @@
-"""Training losses: state prediction, visual L1/LPIPS, action ranking."""
 
 from __future__ import annotations
 
@@ -19,7 +18,6 @@ def state_prediction_loss(s_hat, s_fut, dvl_weight: float = 2.0):
 
 
 def ranking_loss(err_true, err_cf, margin: float):
-    """max(0, m + D(true, gt) - D(cf, gt)); want true closer than counterfactual."""
     return torch.relu(margin + err_true - err_cf).mean()
 
 
@@ -52,7 +50,7 @@ class OptionalLPIPS(torch.nn.Module):
         super().__init__()
         self.fn = None
         try:
-            import lpips  # type: ignore
+            import lpips
 
             self.fn = lpips.LPIPS(net="vgg")
             for p in self.fn.parameters():
@@ -62,11 +60,9 @@ class OptionalLPIPS(torch.nn.Module):
 
     def forward(self, pred, gt):
         if self.fn is None:
-            # downsampled L2 fallback (no extra weights)
             p = torch.nn.functional.avg_pool2d(pred, 4)
             g = torch.nn.functional.avg_pool2d(gt, 4)
             return ((p - g) ** 2).mean()
-        # lpips expects [-1, 1]
         return self.fn(pred * 2 - 1, gt * 2 - 1).mean()
 
 

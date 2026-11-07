@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""Pack recorded locomotion episodes (box 2 recordings) into a compact training set for the
-end-to-end perception model: 224x224 JPEG pairs (ego = right camera, wrist = hand or left camera)
-plus labels per frame:
-  disp3   expert-intent displacement over the next 3 s in the body frame = direction to the node the
-          follower is tracking, times min(distance, 3 s x cruise speed)  (follow: boat standoff)
-  wp6     the tracked node in the body frame [dx dy dz 0 0 yaw_rel]     (same as synth_nav_labels)
-  state7  [joints(5)=0, pressure/1e4, altitude], task index
-Output: <out>/dagger_e2e.npz (jpeg bytes as object arrays + label arrays). Runs on CPU only.
-"""
 from __future__ import annotations
 
 import argparse

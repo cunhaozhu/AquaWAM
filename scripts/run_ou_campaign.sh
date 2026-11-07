@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Prepare 10 Hz DVL runtime scene, launch official BlueROV2, collect 6 REGIMES.
 set -euo pipefail
 ROOT=/hy-tmp
 U0="${U0:-/hy-tmp/u0env}"
@@ -18,7 +17,6 @@ print("SCN", p)
 PY
 
 SCN=/hy-tmp/data/ou_explore/scn/bluerov2_test_runtime.scn
-# stop previous simulator by exact binary pid only
 for p in $(ps -eo pid,cmd | awk '/\/parsed_simulator / && !/awk/{print $1}'); do
   kill "$p" 2>/dev/null || true
 done
@@ -27,14 +25,12 @@ if [[ ! -S /tmp/.X11-unix/X${DISPLAY#:} ]]; then
   Xvfb "${DISPLAY}" -screen 0 1280x720x24 +extension GLX +render -noreset >/hy-tmp/logs/xvfb.log 2>&1 &
   sleep 1
 fi
-# Prefer NVIDIA GL when dummy X :1 is up
 if [[ -S /tmp/.X11-unix/X1 ]]; then
   export DISPLAY=:1
   export UWAM_NVIDIA_GL=1
 fi
 nohup bash /hy-tmp/underwater_wam/scripts/run_u0env.sh gpu "${SCN}" >"${LOG}" 2>&1 &
 echo "sim pid $! log ${LOG}"
-# wait for DVL
 set +u
 export PATH=/hy-tmp/envs/ros_env/bin:$PATH
 export CONDA_PREFIX=/hy-tmp/envs/ros_env

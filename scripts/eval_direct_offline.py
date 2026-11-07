@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-"""Offline check of the amortized head against the online planner on held-out teacher windows:
-imagined cost (same frozen core, same objective) and per-decision latency."""
 from __future__ import annotations
 
 import argparse
@@ -13,9 +11,9 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from uwam.control import SamplingMPC  # noqa: E402
-from uwam.data import load_ou_split  # noqa: E402
-from uwam.direct import DirectPolicy, ImaginedCost, load_core  # noqa: E402
+from uwam.control import SamplingMPC
+from uwam.data import load_ou_split
+from uwam.direct import DirectPolicy, ImaginedCost, load_core
 
 
 def main():
@@ -29,12 +27,11 @@ def main():
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     m, dn, pn, cfg = load_core(args.ckpt, dev)
     cost = ImaginedCost(m, dn, pn, cfg, dev)
-    mpc = SamplingMPC(m, dn, pn, cfg.control, device=dev)  # online config (128 x 2)
+    mpc = SamplingMPC(m, dn, pn, cfg.control, device=dev)
     mpc.set_library(np.concatenate([e.pwm for e in load_ou_split(Path("/hy-tmp/data/ou_explore"))], 0))
     head = DirectPolicy.load(args.head, m, dn, pn, dev)
     z = np.load(args.data)
     rng = np.random.default_rng(1)
-    # the trainer's validation split is the first 5 % of permutation(seed 0); use the same windows
     N = len(z["J"])
     perm = np.random.default_rng(0).permutation(N)
     val = [i for i in perm[: max(256, int(N * 0.05))] if z["J"][i] <= 5][: args.n]

@@ -1,4 +1,3 @@
-"""Stonefish / u0env helpers: dynamics randomization, FLS recording, OU collection."""
 
 from __future__ import annotations
 
@@ -19,10 +18,10 @@ from .config import ControlCfg
 class DynamicsRegime:
     name: str
     current: Tuple[float, float, float] = (0.0, 0.0, 0.0)
-    current_omega: float = 0.0          # if >0, sinusoidal time-varying current
+    current_omega: float = 0.0
     current_amp: Tuple[float, float, float] = (0.0, 0.0, 0.0)
-    eta: Tuple[float, ...] = (1, 1, 1, 1, 1, 1, 1, 1)  # thruster efficiency
-    change_at: Optional[float] = None   # seconds; switch to eta_after / current_after
+    eta: Tuple[float, ...] = (1, 1, 1, 1, 1, 1, 1, 1)
+    change_at: Optional[float] = None
     eta_after: Optional[Tuple[float, ...]] = None
     current_after: Optional[Tuple[float, float, float]] = None
 
@@ -37,24 +36,14 @@ REGIMES = [
                    current_after=(0.15, 0.05, 0.0)),
 ]
 
-# Mid-trial faults on the HORIZONTAL thrusters (0-3), which are the ones that produce surge/sway.
-# change_point above degrades thrusters 4-5 (vertical), so it barely touches the x/y goals and never
-# punishes a controller that simply holds its last command. These do, which is what makes the
-# fault-during-blackout protocol a real test of re-identification.
 FAULT_MID_REGIMES = [
     DynamicsRegime("fail_mid_t2", change_at=8.0, eta_after=(1, 1, 0.35, 1, 1, 1, 1, 1)),
     DynamicsRegime("fail_mid_t0", change_at=8.0, eta_after=(0.4, 1, 1, 1, 1, 1, 1, 1)),
     DynamicsRegime("fail_mid_t1", change_at=8.0, eta_after=(1, 0.4, 1, 1, 1, 1, 1, 1)),
     DynamicsRegime("fail_mid_t03", change_at=8.0, eta_after=(0.5, 1, 1, 0.5, 1, 1, 1, 1)),
-    # all-horizontal degradation (net/trawl entanglement): the over-actuated mixer cannot
-    # average this one away -- the velocity shift is ~2.3 sigma_e, ABOVE the acting
-    # threshold Delta*, i.e. the regime where the gate must open
     DynamicsRegime("fail_mid_all", change_at=8.0, eta_after=(0.4, 0.4, 0.4, 0.4, 1, 1, 1, 1)),
 ]
 
-# Severity sweep: single-thruster faults land BELOW the acting threshold on this vehicle
-# (the mixer spreads surge over 4 thrusters), all-horizontal faults cross it -- together
-# they trace the crossover the theory predicts.
 FAULT_SWEEP_REGIMES = [
     DynamicsRegime(f"sweep_t2_{int(e * 100):02d}", change_at=8.0,
                    eta_after=(1, 1, e, 1, 1, 1, 1, 1))
@@ -65,16 +54,12 @@ FAULT_SWEEP_REGIMES = [
     for e in (0.8, 0.6, 0.4, 0.2)
 ]
 
-# Gate-calibration regimes: deployment-condition streams (blind + held command) with
-# eta values and change times deliberately OFF the evaluation grids above. Used only
-# with --calib-dump to fit (kappa, h); never scored as results.
 CALIB_REGIMES = [
     DynamicsRegime("calib_nom"),
     DynamicsRegime("calib_f0", change_at=9.0, eta_after=(0.3, 1, 1, 1, 1, 1, 1, 1)),
     DynamicsRegime("calib_f1", change_at=10.0, eta_after=(1, 0.45, 1, 1, 1, 1, 1, 1)),
     DynamicsRegime("calib_f2", change_at=9.5, eta_after=(1, 1, 0.55, 1, 1, 1, 1, 1)),
     DynamicsRegime("calib_f03", change_at=10.5, eta_after=(0.6, 1, 1, 0.6, 1, 1, 1, 1)),
-    # decision-relevant (above-Delta*) examples for the delay half of the calibration
     DynamicsRegime("calib_fall", change_at=9.5, eta_after=(0.5, 0.5, 0.5, 0.5, 1, 1, 1, 1)),
     DynamicsRegime("calib_fall2", change_at=10.0, eta_after=(0.3, 0.3, 0.3, 0.3, 1, 1, 1, 1)),
 ]
@@ -89,7 +74,6 @@ REGIME_SETS = {
 
 def patch_scenario_current(scn_path: Path, current_xyz: Tuple[float, float, float], dest: Path,
                            current_topic: str = "/bluerov2/ocean_current") -> Path:
-    """Rewrite uniform current and attach a ROS velocity subscriber for live updates."""
     tree = ET.parse(scn_path)
     root = tree.getroot()
     for node in root.iter("current"):
@@ -106,7 +90,7 @@ def patch_scenario_current(scn_path: Path, current_xyz: Tuple[float, float, floa
     return dest
 
 
-TARGET_DT = 0.1  # must match Cfg.schema.dt / USIM fps=10
+TARGET_DT = 0.1
 TARGET_HZ = 10.0
 
 
@@ -117,11 +101,6 @@ def patch_robot_sensor_rates(
     camera_rate: float = 10.0,
     fls_rate: float = 10.0,
 ) -> Path:
-    """Keep user-opened cameras/FLS on. Set DVL (and cameras) to the WAM 10 Hz clock.
-
-    Do not drop DVL/cameras to 2–5 Hz: that changes Δt vs USIM and causes train-good / infer-bad.
-    IMU may stay faster than 10 Hz; collectors snapshot the latest sample on the DVL tick.
-    """
     tree = ET.parse(robot_scn)
     root = tree.getroot()
     for sensor in root.iter("sensor"):
@@ -144,7 +123,6 @@ def prepare_ou_scene(
     camera_rate: float = 10.0,
     fls_rate: float = 10.0,
 ) -> Path:
-    """Official bluerov2_test + same meshes; DVL=10 Hz and live current topic."""
     src_test = u0env / "ros_ws/src/stonefish_bluerov2/scenarios/bluerov2_test.scn"
     src_robot = u0env / "ros_ws/src/stonefish_bluerov2/scenarios/robots/bluerov2.scn"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -173,21 +151,16 @@ def regime_at(reg: DynamicsRegime, t: float) -> Tuple[Tuple[float, float, float]
     eta = reg.eta
     if reg.current_omega > 0:
         s = np.sin(reg.current_omega * t)
-        cur = tuple(c + a * float(s) for c, a in zip(reg.current, reg.current_amp))  # type: ignore
+        cur = tuple(c + a * float(s) for c, a in zip(reg.current, reg.current_amp))
     if reg.change_at is not None and t >= reg.change_at:
         if reg.current_after is not None:
             cur = reg.current_after
         if reg.eta_after is not None:
             eta = reg.eta_after
-    return cur, eta  # type: ignore
+    return cur, eta
 
 
 def collect_ou_offline_placeholder(out_dir: Path, n_frames: int = 16000, seed: int = 0) -> Path:
-    """
-    When the live simulator is not yet up, emit a structurally valid OU dataset
-    using a simple 6-DoF surrogate so the rest of the pipeline can be tested.
-    Replace with ROS collection once u0env is built.
-    """
     rng = np.random.default_rng(seed)
     ou = OUProcess()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -198,7 +171,6 @@ def collect_ou_offline_placeholder(out_dir: Path, n_frames: int = 16000, seed: i
     imu_la = np.zeros((T, 3), np.float32)
     v = np.zeros(3, np.float32)
     w = np.zeros(3, np.float32)
-    # crude allocation similar to rov_gym_env.sixdof_thrust_to_pwm inverse
     B = rng.normal(0, 0.15, size=(3, 8)).astype(np.float32)
     Bw = rng.normal(0, 0.1, size=(3, 8)).astype(np.float32)
     current = np.array([0.08, 0.02, 0.0], np.float32)

@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# USIM-Hard S7: closed-loop data-efficiency / held-out cores on goto (full sensing, 10 eps/task).
-# For each core: restart THIS instance's WAM server with WAM_CKPT=<core>, run goto x2, restore.
-# Must run with instance_env sourced (U0ENV, DISPLAY_NUM, INSTANCE_ROSPORT, PORT_WAM, X_GPU).
 set -uo pipefail
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 WS=/hy-tmp/underwater_wam
@@ -10,7 +7,7 @@ NEP=${NEP:-10}
 CORES=${CORES:-"de_f05 de_f10 de_f25 de_f50 de_f100 ho_nav ho_manip ho_wt ho_scan"}
 GPU=${X_GPU:-0}
 EVAL_ROOT="$U0ENV/dataset/eval"
-restart_wam() {  # $1 = ckpt path
+restart_wam() {
   for p in $(pgrep -f "python3 .*wam_policy_server.py --port $PORT_WAM"); do kill "$p" 2>/dev/null; done
   sleep 3
   CUDA_VISIBLE_DEVICES=$GPU EVAL_ROOT=$EVAL_ROOT WAM_CKPT=$1 WAM_VMAX_SCALE=${WAM_VMAX_SCALE:-1.8} \

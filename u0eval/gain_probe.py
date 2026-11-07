@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""
-Open-loop sanity probe of every stage-1 core: imagined surge speed after 2 s of a constant surge
-command from rest (hover history, level, 2.8 m depth), for command magnitudes 0.3 / 0.5 / 0.8.
-
-This is the regime the sampling MPC lives in (it accelerates from hover with mid-range commands),
-and it is NOT the regime of the USIM demonstrations (expert always at cruise, 44 % saturated
-commands). Ground truth from the OU exploration recordings: ~0.30 m/s per unit surge command
-after 2 s (steady-state plant gain from the axis probe: 0.5 m/s per unit).
-
-Cores trained only on the repeated demos predict the wrong sign or 2 m/s; this is why de_f50 /
-de_f100 / ho_nav crawl in closed loop (0.07-0.18 m/s) although their offline DVL MAE on the demo
-test split is the best of all. Writes u0eval/gain_probe.json (read by ablation_tables.py and
-write_results_md.py).
-"""
 from __future__ import annotations
 
 import json
@@ -23,9 +9,9 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from uwam.control import sixdof_thrust_to_pwm  # noqa: E402
-from uwam.data import load_ou_split  # noqa: E402
-from uwam.direct import load_core  # noqa: E402
+from uwam.control import sixdof_thrust_to_pwm
+from uwam.data import load_ou_split
+from uwam.direct import load_core
 
 MODELS = Path("/hy-tmp/models/uwam")
 CORES = ["de_f05", "de_f10", "de_f25", "de_f50", "de_f100", "ho_nav", "ho_manip", "ho_wt", "ho_scan",

@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-"""Model-based dead reckoning vs windowed regression, offline on recordings.
-
-At a simulated dropout t0 the last true DVL is known. Two ways to carry the
-velocity through the blackout:
-  A) windowed regressor (current blind path): v_est from a DVL-masked 1.6 s
-     window each tick, no memory of the initial condition;
-  B) world-model rollout: start from the true state at t0 and integrate the
-     learned dynamics forward with the EXECUTED pwm, refreshing the disturbance
-     code from the (self-filled) history. The initial condition is used.
-Reports velocity error and integrated horizontal displacement error after
-5/10/20/40 s, per driving arm, on held-out recordings.
-"""
 import glob
 import sys
 import types
@@ -21,8 +9,8 @@ import torch
 
 sys.path.insert(0, "/hy-tmp/underwater_wam/u0eval")
 sys.path.insert(0, "/hy-tmp/underwater_wam")
-from uwam.control import SamplingMPC  # noqa: E402
-from wam_policy_server import WamPolicy  # noqa: E402
+from uwam.control import SamplingMPC
+from wam_policy_server import WamPolicy
 
 L, DT = 16, 0.1
 
@@ -37,7 +25,6 @@ def load(npz):
 
 
 class ModelDR:
-    """Roll the dynamics core one tick at a time from a known state."""
 
     def __init__(self, mpc: SamplingMPC):
         self.mpc = mpc
@@ -46,7 +33,6 @@ class ModelDR:
 
     @torch.no_grad()
     def step(self, hist_s, hist_a, s_t, a_next):
-        """One tick: s_t (raw, with velocity filled) + executed pwm a_next -> s_{t+1}."""
         hs = torch.from_numpy(self.dn(hist_s)).unsqueeze(0).to(self.dev)
         ha = torch.from_numpy(self.pn(hist_a)).unsqueeze(0).to(self.dev)
         d = self.model.disturbance(hs, ha)
@@ -66,7 +52,6 @@ def run(files, mpc_reg, mpc_ens, t0=100, horizon=400):
         if len(dyn) < t0 + 60:
             continue
         T = min(len(dyn) - 1, t0 + horizon)
-        # A/B/C state
         hist_A = dyn[t0 - L + 1:t0 + 1].copy()
         hist_B = hist_A.copy()
         hist_C = hist_A.copy()
@@ -75,22 +60,18 @@ def run(files, mpc_reg, mpc_ens, t0=100, horizon=400):
         pA = pB = pC = np.zeros(2)
         p_true = np.zeros(2)
         for t in range(t0, T):
-            a_exec = pwm[t]                     # command issued at tick t
+            a_exec = pwm[t]
             ha = pwm[t - L + 1:t + 1]
-            # --- A: regressor on a DVL-masked window (DVL cols irrelevant) ---
             v_A = mpc_reg.estimate_velocity(hist_A, ha)[:3]
-            # --- B: model rollout from the last state ---
             s_B = dr.step(hist_B, ha, s_B, a_exec)
-            s_B[3:] = dyn[t + 1][3:]           # IMU/pressure/alt/pwm are still measured
+            s_B[3:] = dyn[t + 1][3:]
             v_B = s_B[0:3].copy()
-            # --- C: fusion -- model prior corrected toward the ensemble (gain 0.3) ---
             ens = mpc_ens.estimate_velocity_ens(hist_C, ha)
             s_C = dr.step(hist_C, ha, s_C, a_exec)
             s_C[3:] = dyn[t + 1][3:]
             if ens is not None:
                 s_C[0:3] = 0.7 * s_C[0:3] + 0.3 * ens[0]
             v_C = s_C[0:3].copy()
-            # advance histories with self-filled velocity
             nxt = dyn[t + 1].copy()
             rowA = nxt.copy(); rowA[0:3] = v_A
             rowB = nxt.copy(); rowB[0:3] = v_B

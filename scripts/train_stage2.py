@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Stage-2 residual visual WAM: freeze Stage-1 disturbance token, train U-Net + rank."""
 
 from __future__ import annotations
 
@@ -157,7 +156,6 @@ def main():
         history.append(rec)
         print(json.dumps(rec, indent=2), flush=True)
         torch.save({"vis": vis.state_dict(), "metrics": rec}, cfg.paths.ckpt / "visual_last.pt")
-        # paper metric is true-vs-random; keep pix from exploding vs copy
         ok_pix = rec["pix"] <= 2.0 * max(1e-6, rec["copy"]) or rec["pix"] <= 0.12
         if ok_pix and rec["rank_rand"] >= best_rank:
             best_rank = rec["rank_rand"]

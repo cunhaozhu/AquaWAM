@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-"""Synthesize expert-staged target labels for wander (DAgger) episodes and
-featurize them into the percept training schema.
-
-Per recorded frame (vla_data_collector pkl): read privileged object + vehicle
-odometry, compute the staged target the expert WOULD publish from that pose
-(search / approach / grasp standoffs, the same constants the privileged arm
-uses), express it in the vehicle body frame, and pair it with the DINOv2-base
-features of the recorded images. Gripper label = 1 inside the close window.
-
-Output: appends dagger_feats_base.npz + dagger_grip_base.npy under the probe
-data dir; train_head consumes them via --extra dagger.
-"""
 
 from __future__ import annotations
 
@@ -26,7 +14,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from extract_feats import ENCODERS, featurize  # noqa: E402
+from extract_feats import ENCODERS, featurize
 
 GRASP_STANDOFF = {
     "search": np.array([0.45, -0.08, 0.35]),
@@ -55,7 +43,6 @@ def standoff_world(box, box_yaw, key):
 
 
 def staged_label(pos, yaw, box, box_yaw):
-    """Body-frame [dx dy dz r p yaw] the expert would command from this pose."""
     cands = [box_yaw, yaw_wrap(box_yaw + np.pi)]
     byaw = min(cands, key=lambda a: abs(yaw_wrap(a - yaw)))
     d_grasp = standoff_world(box, byaw, "grasp") - pos

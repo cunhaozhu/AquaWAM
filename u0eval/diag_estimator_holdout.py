@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Held-out estimator comparison on deployment recordings the ensemble never saw.
-
-Sources: model vel head (current blind path), old ensemble mean (vel_ens.pt),
-new deployment-trained ensemble mean (vel_ens_deploy.pt). Errors in m/s on the
-horizontal DVL velocity, binned by true speed, per driving arm.
-"""
 import glob
 import sys
 import types
@@ -14,8 +8,8 @@ import numpy as np
 
 sys.path.insert(0, "/hy-tmp/underwater_wam/u0eval")
 sys.path.insert(0, "/hy-tmp/underwater_wam")
-from uwam.control import SamplingMPC  # noqa: E402
-from wam_policy_server import WamPolicy  # noqa: E402
+from uwam.control import SamplingMPC
+from wam_policy_server import WamPolicy
 
 L = 16
 

@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Full cross-domain protocol for one gym env:
-#   deployment-condition gate calibration -> headline (4 regimes x 5 arms x 5 seeds)
-#   -> severity sweep -> duration sweep.
-# Usage: run_gym_suite.sh <env> <goal> <goal2> [dt]
 set -uo pipefail
 ENV="$1"; GOAL="$2"; GOAL2="$3"; DT="${4:-0.05}"
 WS=/hy-tmp/underwater_wam
@@ -11,7 +7,7 @@ CAL=/hy-tmp/logs/gym_${ENV}_calib
 PY=python3
 
 cd "$WS"
-rm -rf "$CAL"   # stale dumps from a previous hold-semantics would poison the fit
+rm -rf "$CAL"
 
 echo "=== [$ENV] gate calibration runs $(date +%H:%M:%S)"
 $PY gym_port/closed_loop.py --env "$ENV" --arms calib --regimes nominal,fault --goal "$GOAL" \
@@ -23,8 +19,6 @@ $PY gym_port/closed_loop.py --env "$ENV" --arms calib --regimes midfault --goal 
 $PY gym_port/closed_loop.py --env "$ENV" --arms calib --regimes midfault --goal "$GOAL" \
   --drop-at 100 --change-at 190 --T 300 --eta 0.3 --seeds 5 --seed-base 105 --calib-dump "$CAL" \
   --out "$RES/tmp_${ENV}_calib3.json" || exit 1
-# stationary replan reference on the calibration seeds: together with the hold cost in
-# calib1 it decides the gate's alpha_base (which endpoint is stationary-optimal)
 $PY gym_port/closed_loop.py --env "$ENV" --arms replan --regimes nominal --goal "$GOAL" \
   --drop-at 100 --T 300 --seeds 4 --seed-base 100 \
   --out "$RES/tmp_${ENV}_calibreplan.json" || exit 1

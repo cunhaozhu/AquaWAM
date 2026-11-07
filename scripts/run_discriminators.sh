@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# The two discriminating experiments: extended fault-during-blackout, then goal-step-while-blind.
 set -uo pipefail
 CKPT="${CKPT:-/hy-tmp/models/uwam/best_ou.pt}"
 LOGS=/hy-tmp/logs/uwam

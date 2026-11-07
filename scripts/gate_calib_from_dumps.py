@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""Fit (kappa, h) from deployment-condition calibration dumps.
-
-Input: npz files written by closed_loop.py --calib-dump (any domain, shared format):
-  t [T], v_sm_n [T,D], anchor_n [T,D], sig_eff [T,D], dvl_true [T,D], change_at, t_start
-Null streams come from no-change trials, shift streams from trials whose regime changed
-at `change_at`. The z computation is definitionally identical to the deployed gate.
-"""
 
 from __future__ import annotations
 
@@ -17,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from uwam.gate import calibrate  # noqa: E402
+from uwam.gate import calibrate
 
 
 def main():
@@ -52,8 +45,6 @@ def main():
         change_at = float(d["change_at"])
         if change_at < 0:
             z_null.append(z)
-            # re-anchored sub-windows multiply the null set: same estimator stream,
-            # anchor reset to the local smoothed estimate (bias cancels identically)
             v_sm, sig = d["v_sm_n"], d["sig_eff"]
             for s0 in range(30, len(t) - 40, 30):
                 anc = v_sm[s0 - args.n_smooth:s0].mean(0)
@@ -63,8 +54,6 @@ def main():
             continue
         tc = int(np.searchsorted(t, change_at))
         if tc < 3 or tc > len(t) - 10:
-            # change outside (or too near the edge of) the blind window: treat pre-change
-            # part as null if long enough
             if tc >= len(t) - 10 and tc > 40:
                 z_null.append(z[:tc - 5])
             continue
@@ -82,16 +71,12 @@ def main():
     report = calibrate(z_null, z_shift, dt=args.dt, far_target=args.far, shift_sizes=sizes)
     report["source"] = "deployment-condition dumps"
     report["dump_dirs"] = args.dumps
-    # stationary-optimal endpoint from the calibration trials themselves: whichever of
-    # hold/replan is cheaper with nothing changing becomes the gate's alpha_base
     if args.hold_ref and args.replan_ref:
         hold_d = json.loads(Path(args.hold_ref).read_text())["results"]
         rep_d = json.loads(Path(args.replan_ref).read_text())["results"]
         hold_err = (hold_d.get("nominal/calib") or {}).get("err_blind")
         rep_err = (rep_d.get("nominal/replan") or {}).get("err_blind")
         if hold_err is not None and rep_err is not None:
-            # hold is the conservative default; replanning becomes the base endpoint only
-            # when it is CLEARLY stationary-better (20% margin beats seed noise on ties)
             report["alpha_base"] = 1.0 if rep_err < 0.8 * hold_err else 0.0
             report["stationary_costs"] = {"hold": hold_err, "replan": rep_err}
     out = Path(args.out)

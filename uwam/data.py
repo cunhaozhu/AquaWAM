@@ -1,4 +1,3 @@
-"""USIM LeRobot v2.1 loaders and sliding-window datasets."""
 
 from __future__ import annotations
 
@@ -23,16 +22,6 @@ PRESSURE_USIM_TO_PA = 1.0e4
 
 
 def dyn_state_from_obs(state: np.ndarray, schema: Schema, use_arm: bool = False) -> np.ndarray:
-    """Build the dynamics state: DVL, IMU, pressure, altitude, PWM (19-d), plus the
-    manipulator's joint positions and velocities appended at the end when use_arm (29-d).
-
-    Arm channels must stay last: mask_dvl and vel_head hard-code the DVL at [0:3].
-    """
-    # USIM stores pressure as fluid_pressure / 1e4 (tools/dataprocess/data_process.py);
-    # the OU / planner / deployment recordings and the policy servers all use raw Pa.
-    # Convert here so every training source and the deployed input share one unit.
-    # (Checkpoints trained before this fix -- best_ou / best_arm -- saw a mixture:
-    # USIM at ~0.3-16 and OU at ~3e4 under one normalization.)
     parts = [
         _slice(state, schema.dvl_v),
         _slice(state, schema.imu_av),
@@ -47,7 +36,6 @@ def dyn_state_from_obs(state: np.ndarray, schema: Schema, use_arm: bool = False)
 
 
 def pwm_from_action(action: np.ndarray, schema: Schema, use_arm: bool = False) -> np.ndarray:
-    """Commanded action: 8 thruster PWM, plus 5 joint-angle commands when use_arm."""
     parts = [_slice(action, schema.action_pwm)]
     if use_arm:
         parts.append(_slice(action, schema.action_joint))
@@ -55,9 +43,6 @@ def pwm_from_action(action: np.ndarray, schema: Schema, use_arm: bool = False) -
 
 
 def pad_arm_channels(dyn: np.ndarray, pwm: np.ndarray, n_joints: int = 5):
-    """Zero-pad locomotion-only episodes (OU / planner collections have no arm) to the
-    arm-extended layout so both corpora can be mixed in one training run. Zeros are the
-    honest value here: the arm is parked and commanded to hold throughout."""
     T = dyn.shape[0]
     dyn_out = np.concatenate([dyn, np.zeros((T, 2 * n_joints), np.float32)], axis=-1)
     pwm_out = np.concatenate([pwm, np.zeros((T, n_joints), np.float32)], axis=-1)
@@ -73,23 +58,23 @@ class Episode:
     episode_index: int
     task_index: int
     task: str
-    state: np.ndarray          # [T, 29]
-    action: np.ndarray         # [T, 13]
-    dyn: np.ndarray            # [T, 19], or [T, 29] under use_arm
-    pwm: np.ndarray            # [T, 8],  or [T, 13] under use_arm
-    target_pos: np.ndarray     # [T, 6]
-    timestamp: np.ndarray      # [T]
+    state: np.ndarray
+    action: np.ndarray
+    dyn: np.ndarray
+    pwm: np.ndarray
+    target_pos: np.ndarray
+    timestamp: np.ndarray
     split: str
     parquet_path: Path
     ego_video: Optional[Path] = None
     wrist_video: Optional[Path] = None
     regime_index: int = 0
-    dt: float = 0.1                            # sample period of this episode's grid
-    flow_class: Optional[np.ndarray] = None   # [T] 0 none / 1 const / 2 varying
-    fail_class: Optional[np.ndarray] = None   # [T] 0 ok / 1 single / 2 multi
-    eta_arr: Optional[np.ndarray] = None      # [T, 8] per-thruster efficiency (regression target)
-    rgb_arr: Optional[np.ndarray] = None      # uint8 [T,H,W,3]
-    fls_arr: Optional[np.ndarray] = None      # uint8 [T,H,W]
+    dt: float = 0.1
+    flow_class: Optional[np.ndarray] = None
+    fail_class: Optional[np.ndarray] = None
+    eta_arr: Optional[np.ndarray] = None
+    rgb_arr: Optional[np.ndarray] = None
+    fls_arr: Optional[np.ndarray] = None
 
 
 def _video_path(root: Path, split: str, key: str, ep_idx: int, chunk_size: int = 1000) -> Path:
@@ -117,7 +102,6 @@ def iter_parquet_files(split_dir: Path) -> List[Path]:
 
 
 def _resize_u8(arr: np.ndarray, hw: Tuple[int, int]) -> np.ndarray:
-    """Resize a T-stack of images to hw. Gray [T,H,W] or RGB [T,H,W,3] uint8."""
     import cv2
 
     H, W = hw
@@ -137,7 +121,6 @@ def _resize_u8(arr: np.ndarray, hw: Tuple[int, int]) -> np.ndarray:
 
 
 def flow_fail_labels(regime_name: str, timestamps: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Per-frame flow (0 none / 1 const / 2 varying) and fail (0 ok / 1 single / 2 multi)."""
     from .sim import REGIMES, regime_at
 
     ts = np.asarray(timestamps, dtype=np.float64).reshape(-1)
@@ -163,7 +146,6 @@ def flow_fail_labels(regime_name: str, timestamps: np.ndarray) -> Tuple[np.ndarr
 
 
 def eta_schedule(regime_name: str, timestamps: np.ndarray) -> np.ndarray:
-    """Per-frame thruster efficiency [T, 8] from the named regime's schedule."""
     from .sim import REGIMES, FAULT_MID_REGIMES, regime_at
 
     ts = np.asarray(timestamps, dtype=np.float64).reshape(-1)
@@ -221,7 +203,6 @@ def load_split(root: Path, split: str, schema: Schema, max_episodes: int = 0,
 
 
 class RunningNorm:
-    """Simple mean/std normalizer fit on stacked arrays."""
 
     def __init__(self, eps: float = 1e-6):
         self.mean: Optional[np.ndarray] = None
@@ -261,12 +242,6 @@ class RunningNorm:
 
 
 class DynamicsWindowDataset(Dataset):
-    """
-    Windows for the body-dynamics WAM:
-
-        history H_t = {s_{t-L:t}, a_{t-L:t-1}}
-        future  a_{t:t+K}, s_{t+K} (and the full K-step trajectory)
-    """
 
     def __init__(
         self,
@@ -282,7 +257,7 @@ class DynamicsWindowDataset(Dataset):
         self.K = cfg.model.horizon_dyn
         self.slow_mode = slow_mode
         self.episodes = list(episodes)
-        self.index: List[Tuple[int, int]] = []  # (ep_i, t)
+        self.index: List[Tuple[int, int]] = []
         for i, ep in enumerate(self.episodes):
             t_max = ep.dyn.shape[0] - self.K - 1
             t_min = self.L
@@ -303,7 +278,6 @@ class DynamicsWindowDataset(Dataset):
     def _hist_dyn(self, dyn: np.ndarray, t: int) -> np.ndarray:
         h = dyn[t - self.L : t].copy()
         if self.slow_mode:
-            # wipe DVL + IMU accel/gyro so the encoder cannot copy short-term kinematics
             h[:, 0:9] = 0.0
         return h
 
@@ -314,14 +288,12 @@ class DynamicsWindowDataset(Dataset):
         dyn = self.dyn_norm(ep.dyn)
         pwm = self.pwm_norm(ep.pwm)
 
-        hist_s = self._hist_dyn(dyn, t)                     # [L, 19]
-        # past actions a_{t-L:t-1}
-        hist_a = pwm[t - L : t]                             # [L, 8]  (includes a_{t-1} at last step)
-        s_t = dyn[t]                                        # [19]
-        a_fut = pwm[t : t + K]                              # [K, 8]
-        s_fut = dyn[t + 1 : t + K + 1]                      # [K, 19]
+        hist_s = self._hist_dyn(dyn, t)
+        hist_a = pwm[t - L : t]
+        s_t = dyn[t]
+        a_fut = pwm[t : t + K]
+        s_fut = dyn[t + 1 : t + K + 1]
 
-        # counterfactual actions for ranking loss
         a_zero = np.zeros_like(a_fut)
         a_rev = -a_fut
         rng = np.random.RandomState((ei * 1000003 + t) & 0xFFFFFFFF)
@@ -386,7 +358,6 @@ def _resample_series(ts: np.ndarray, x: np.ndarray, grid: np.ndarray) -> np.ndar
 
 
 def ensure_ou_dt(ts: np.ndarray, fields: dict, target_dt: float = TARGET_DT) -> tuple:
-    """Force OU streams onto a uniform 10 Hz grid."""
     ts = np.asarray(ts, dtype=np.float64).reshape(-1)
     if ts.size < 8:
         raise ValueError(f"OU episode too short: {ts.size} samples")
@@ -402,7 +373,7 @@ def ensure_ou_dt(ts: np.ndarray, fields: dict, target_dt: float = TARGET_DT) -> 
     return grid.astype(np.float32), out, {"resampled": True, "native_dt": med}
 
 
-OBJ_DIM = 6   # object in the body frame: x, y, z, cos(dpsi), sin(dpsi), valid
+OBJ_DIM = 6
 
 
 def ou_npz_to_episode(path: Path, regime_index: int, episode_index: int, load_images: bool = False,
@@ -440,10 +411,6 @@ def ou_npz_to_episode(path: Path, regime_index: int, episode_index: int, load_im
     dvl_h = fields["dvl_h"].reshape(-1, 1)
     T = pwm.shape[0]
     ts_rel = np.arange(T, dtype=np.float64) * ep_dt
-    # The collectors recorded the PUBLISHED pwm (after apply_efficiency), i.e. the delivered
-    # thrust. A real vehicle only knows what it COMMANDED; the thruster fault is exactly the
-    # unobserved gap the model must infer. The eta schedule is known analytically, so the
-    # commanded value is recovered exactly: u_cmd = u_published / eta.
     if "eta" in z.files:
         eta = z["eta"].astype(np.float32).reshape(T, 8)
         pwm_recorded_is_cmd = bool(z["pwm_is_commanded"]) if "pwm_is_commanded" in z.files else False
@@ -453,9 +420,6 @@ def ou_npz_to_episode(path: Path, regime_index: int, episode_index: int, load_im
     pwm_cmd = pwm if pwm_recorded_is_cmd else np.clip(pwm / np.maximum(eta, 1e-3), -1.0, 1.0)
     pwm = pwm_cmd
     explicit_eta = "eta" in z.files
-    # The state at tick t describes the vehicle BEFORE acting, so its PWM columns must hold the
-    # command that has been driving it (published at t-1). Using pwm[t] would leak a_t into s_t,
-    # which deployment can never reproduce.
     pwm_prev = np.vstack([np.zeros((1, 8), np.float32), pwm[:-1]])
     dyn = np.concatenate([dvl, imu_av, imu_la, pressure, dvl_h, pwm_prev], axis=-1)
     state = np.zeros((T, 29), np.float32)
@@ -467,10 +431,6 @@ def ou_npz_to_episode(path: Path, regime_index: int, episode_index: int, load_im
     state[:, 28:29] = dvl_h
     action = np.zeros((T, 13), np.float32)
     action[:, 5:13] = pwm
-    # the OU / planner corpora are locomotion-only (arm parked); zero-padding to the
-    # arm layout lets them be mixed with USIM arm episodes in one training run. Harness
-    # recordings converted by scripts/recordings_to_ou.py carry the real joint channels
-    # (and joint targets); those are used when present.
     if use_arm:
         if "joint_pos" in z.files and "joint_v" in z.files and len(z["joint_pos"]) == T:
             jp = z["joint_pos"].astype(np.float32)[:, :n_joints]
@@ -484,8 +444,6 @@ def ou_npz_to_episode(path: Path, regime_index: int, episode_index: int, load_im
         else:
             dyn, pwm = pad_arm_channels(dyn, pwm, n_joints)
     if use_object:
-        # object relative pose (body frame xyz, cos/sin relative yaw, valid) -- the manipulation
-        # world model's extra state; zeros (valid = 0) for scenes without an object
         if "obj_body" in z.files and len(z["obj_body"]) == T:
             ob = z["obj_body"].astype(np.float32).reshape(T, -1)[:, :OBJ_DIM]
         else:
@@ -493,7 +451,6 @@ def ou_npz_to_episode(path: Path, regime_index: int, episode_index: int, load_im
         dyn = np.concatenate([dyn, ob], axis=-1).astype(np.float32)
     flow, fail = flow_fail_labels(path.stem, ts_rel)
     if explicit_eta:
-        # labels straight from the recorded schedule (randomized-fault episodes)
         n_bad = (eta < 0.99).sum(axis=1)
         fail = np.clip(n_bad, 0, 2).astype(np.int64)
     hw = (96, 128)
@@ -543,13 +500,9 @@ def load_ou_split(ou_dir: Path, load_images: bool = False, use_arm: bool = False
         if p.exists():
             eps.append(ou_npz_to_episode(p, i, 10_000 + i, load_images=load_images,
                                          use_arm=use_arm, n_joints=n_joints, use_object=use_object))
-    # randomized-fault episodes (explicit eta array) living in the same directory
     for i, p in enumerate(sorted(ou_dir.glob("ou_randfault_*.npz"))):
         eps.append(ou_npz_to_episode(p, 0, 20_000 + i, load_images=load_images,
                                      use_arm=use_arm, n_joints=n_joints, use_object=use_object))
-    # any other OU-schema recording in the directory (recordings_to_ou.py / collect_planner.py
-    # outputs: collect_full__*.npz, <arm>__<task>__episodeN.npz, task_*.npz). Before this branch
-    # such directories silently contributed 0 episodes to --extra-ou / --extra.
     known = set(names)
     for i, p in enumerate(sorted(ou_dir.glob("*.npz"))):
         if p.name in known or p.name.startswith("ou_randfault_"):
@@ -557,15 +510,14 @@ def load_ou_split(ou_dir: Path, load_images: bool = False, use_arm: bool = False
         try:
             eps.append(ou_npz_to_episode(p, 0, 30_000 + i, load_images=load_images,
                                          use_arm=use_arm, n_joints=n_joints, use_object=use_object))
-        except (KeyError, ValueError) as e:  # not an OU-schema file; skip loudly
+        except (KeyError, ValueError) as e:
             print(f"load_ou_split: skipping {p.name} ({e})", flush=True)
     return eps
 
 
 def _read_video_frames(path: Path, hw: Tuple[int, int]) -> Optional[np.ndarray]:
-    """Return [T, 3, H, W] float32 in [0, 1] or None."""
     try:
-        import av  # type: ignore
+        import av
     except Exception:
         return None
     if not path.exists():
@@ -590,7 +542,6 @@ def _read_video_frames(path: Path, hw: Tuple[int, int]) -> Optional[np.ndarray]:
 
 
 class VisualWindowDataset(Dataset):
-    """RGB residual windows: I_t -> I_{t+Kvis} conditioned on future PWM + disturbance hist."""
 
     def __init__(self, episodes: Sequence[Episode], cfg: Cfg, dyn_norm: RunningNorm, pwm_norm: RunningNorm, stride: int = 1):
         self.cfg = cfg
@@ -622,7 +573,7 @@ class VisualWindowDataset(Dataset):
             if len(self._cache) >= self._cache_max:
                 self._cache.pop(next(iter(self._cache)))
             ep = self.episodes[i]
-            self._cache[i] = _read_video_frames(ep.ego_video, self.hw)  # type: ignore[arg-type]
+            self._cache[i] = _read_video_frames(ep.ego_video, self.hw)
         return self._cache[i]
 
     def __getitem__(self, idx: int) -> dict:

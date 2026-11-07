@@ -1,25 +1,4 @@
 #!/usr/bin/env python3
-"""
-Pack grasp/transfer recordings (harness pkl frames + JPEGs) into the training set of the
-wrist-camera relative-pose head and the contact (grasp-success) model.
-
-Every recorded frame -- successful episode or not -- is a labelled sample: the simulator's
-privileged object odometry gives the object pose, the arm's end-effector pose and the vehicle
-odometry give the gripper pose, so the label "object relative to the gripper" is exact.
-
-Per frame (stride s):
-  wrist_jpg   224x224 JPEG bytes of the hand camera        ego_jpg  224x224 of the right camera
-  obj_ee      object position in the END-EFFECTOR frame [m] (what the wrist camera sees)
-  obj_body    object position in the vehicle body frame [m]
-  ee_body     end-effector position in the body frame [m] (from /alpha_ee_pose + the judge's
-              fixed arm-base -> body transform)     ee_R  its rotation matrix in the body frame (9)
-  off_world   gripper - object offset in WORLD axes [dx, dy, dz] (the judge's quantity)
-  rel_yaw     object yaw - vehicle yaw [rad]              dist    |gripper - object| [m]
-  joints(5)   joint positions          effort(5)          joint efforts (axis_a = gripper)
-  grip_cmd    commanded gripper joint (action)             t       seconds since episode start
-  task        task code                episode / success  outcome of the whole episode
-Output: <out>.npz (object arrays for JPEG bytes).  Usage: see --help.
-"""
 from __future__ import annotations
 
 import argparse
@@ -32,8 +11,6 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-# arm base -> vehicle body (planner/eval_grasping.py calc_ee_pose_world): arm x -> body z,
-# arm y -> -body y, arm z -> body x; gripper base offset from the vehicle centre
 R_EE2ROV = np.array([[0.0, 0.0, 1.0], [0.0, -1.0, 0.0], [1.0, 0.0, 0.0]])
 T_EE2ROV = np.array([0.196, -0.084, 0.145 + 0.05])
 
@@ -88,7 +65,7 @@ def pack_episode(args):
         ee_p = pose_xyz(ee["pose"]["position"]); ee_q = pose_q(ee["pose"]["orientation"])
         R_wb = quat_to_R(rov_q)
         ee_body = R_EE2ROV @ ee_p + T_EE2ROV
-        R_ee_body = R_EE2ROV @ quat_to_R(ee_q)           # end-effector orientation in the body frame
+        R_ee_body = R_EE2ROV @ quat_to_R(ee_q)
         obj_body = R_wb.T @ (obj_p - rov_p)
         obj_ee = R_ee_body.T @ (obj_body - ee_body)
         ee_world = R_wb @ ee_body + rov_p
@@ -120,7 +97,7 @@ def pack_episode(args):
             "joints": np.asarray(js.get("position", [0] * 5)[:5], np.float32),
             "effort": np.asarray(js.get("effort", [0] * 5)[:5], np.float32),
             "grip_cmd": np.float32(grip_cmd),
-            "t": np.float32(int(p.stem) / 10.0),   # frames are recorded at 10 Hz; N.pkl = tick N
+            "t": np.float32(int(p.stem) / 10.0),
             "task": task, "episode": str(ep_dir), "success": np.int8(success),
         })
     return rows

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# When collect_scenes.sh finishes training, write the offline old-vs-new report.
 set -uo pipefail
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 LOG=/hy-tmp/logs/u0eval

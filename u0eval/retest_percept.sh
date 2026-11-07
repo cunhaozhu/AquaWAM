@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Retest the percept arm (search-mode server) on grasp tasks, then resume the
-# full eval and re-arm the after-full watcher. Assumes orchestrators are dead
-# and at most one in-flight block remains.
 set -uo pipefail
 WS=/hy-tmp/underwater_wam
 LOG=/hy-tmp/logs/u0eval

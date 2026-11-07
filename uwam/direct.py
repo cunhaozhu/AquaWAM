@@ -1,24 +1,3 @@
-"""
-WAM-direct: an amortized action head on top of the frozen dynamics core.
-
-The sampling MPC (control.SamplingMPC) answers "which 0.5 s PWM sequence drives the
-predicted DVL velocity to v_goal" by scoring hundreds of imagined rollouts every act.
-This module answers the same question with one forward pass:
-
-    a_{t:t+K} = pi_theta( d_t, s_t, v_goal, a_{t-1} )
-
-where d_t is the core's history/disturbance token (so the head sees the same
-embodiment evidence -- thruster wear, currents -- the planner does).  The core then
-rolls a_{t:t+K} out to s_{t+1:t+K}: the pair (s_hat, a_hat) comes out of one pass
-through one model, which is the DreamZero "world action model" reading (actions and
-the futures they cause, aligned by construction); the sampling MPC becomes an optional
-refinement (server flag --action-source direct_cem).
-
-Training (scripts/train_direct.py) = distillation from a *larger* offline teacher
-(512 samples x 3 CEM rounds vs. 128 x 2 online) + the planner's own objective
-evaluated through the frozen core, so the head is pulled toward the teacher's
-choices and toward low imagined cost at the same time.
-"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -31,11 +10,10 @@ from .config import Cfg, enable_arm, enable_object
 from .data import RunningNorm
 from .models import MLP, DynamicsWAM
 
-V_SCALE = 0.5  # v_goal is fed as v / V_SCALE (nav cruise 0.45 m/s -> ~0.9)
+V_SCALE = 0.5
 
 
 def load_core(ckpt_path, device: str = "cuda"):
-    """Rebuild a stage-1 core from its checkpoint (same rules as the policy server)."""
     cfg = Cfg()
     cfg.model.use_language = False
     ck = torch.load(ckpt_path, map_location=device, weights_only=False)
@@ -62,7 +40,6 @@ def load_core(ckpt_path, device: str = "cuda"):
 
 
 class DirectHead(nn.Module):
-    """(d_t, s_t normalized, v_goal / V_SCALE, a_{t-1}) -> K x 8 raw PWM in [-1, 1]."""
 
     def __init__(self, dist_dim: int, state_dim: int = 19, K: int = 5, hidden: int = 256, depth: int = 3):
         super().__init__()
@@ -75,7 +52,6 @@ class DirectHead(nn.Module):
 
 
 class ImaginedCost:
-    """Differentiable copy of SamplingMPC._score (same weights, same 4-chunk chaining)."""
 
     def __init__(self, model, dyn_norm, pwm_norm, cfg, device):
         self.model, self.cfg, self.device = model, cfg.control, device
@@ -111,7 +87,6 @@ class ImaginedCost:
 
 
 class DirectPolicy:
-    """Deployment wrapper: same call signature the server uses for SamplingMPC.plan."""
 
     def __init__(self, head: DirectHead, model, dyn_norm, pwm_norm, device: str = "cuda"):
         self.head, self.model, self.device = head.to(device).eval(), model, device

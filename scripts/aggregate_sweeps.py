@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Aggregate the blackout-duration and fault-severity sweeps into one summary."""
 
 from __future__ import annotations
 

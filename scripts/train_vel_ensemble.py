@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Bootstrap ensemble of dead-reckoning heads: calibrated uncertainty for the trust gate.
-
-The gate needs a scale for "how wrong can the estimate be right now"; hand-tuned m/s thresholds
-are exactly the magic numbers we want to remove. K heads, each trained on a bootstrap resample
-with its own init, give a per-tick disagreement that tracks the estimation error.
-"""
 
 from __future__ import annotations
 
@@ -86,7 +80,6 @@ def main():
     print(f"windows: {n} from {len(eps)} episodes", flush=True)
 
     in_dim = cfg.model.history_len * (cfg.model.dyn_state_dim + cfg.model.pwm_dim) + cfg.model.disturbance_dim
-    # heteroscedastic heads: (mu[3], logvar[3]) so sigma includes aleatoric noise
     heads = [MLP(in_dim, 6, cfg.model.hidden, depth=3, dropout=cfg.model.dropout).to(device)
              for _ in range(args.k)]
     if args.init:
@@ -101,16 +94,12 @@ def main():
     opts = [torch.optim.AdamW(h.parameters(), lr=args.lr, weight_decay=1e-4) for h in heads]
     scale = torch.as_tensor(dyn_norm.std[0:3], dtype=torch.float32, device=device)
 
-    # bootstrap resample per head, fixed across epochs; train only on the first 80% of
-    # each episode's timeline so the calibration check below is honestly held out
     rng = np.random.default_rng(0)
     tr_pool = [i for i, (ei, t) in enumerate(ds.index)
                if t / max(1, ds.episodes[ei].dyn.shape[0] - 1) < 0.8]
     subsets = [torch.utils.data.Subset(ds, rng.choice(tr_pool, size=len(tr_pool)).tolist())
                for _ in range(args.k)]
 
-    # canonical values in the dataset's normalized units (SamplingMPC applies the
-    # same pinning on raw inputs before normalizing, so train == deploy)
     canon = {}
     if args.canon_pressure is not None:
         canon[9] = (args.canon_pressure - float(dyn_norm.mean[9])) / float(dyn_norm.std[9])
@@ -152,7 +141,6 @@ def main():
                 seen += gt.size(0)
             print(f"epoch {ep_i} head {k}: loss {run / max(1, seen):.5f}", flush=True)
 
-        # calibration check: does ensemble std track the actual error?
         loader = DataLoader(ds, batch_size=512, shuffle=False, num_workers=6, collate_fn=collate)
         errs, stds, n_te = 0.0, 0.0, 0
         cal_pairs = []
@@ -163,7 +151,7 @@ def main():
                     continue
                 x = head_input({k2: v[m] for k2, v in batch.items()})
                 gt = batch["s_t"][m][:, 0:3].to(device)
-                outs = torch.stack([h(x) for h in heads], 0)       # [K, B, 6]
+                outs = torch.stack([h(x) for h in heads], 0)
                 mus, vars_ = outs[:, :, :3], outs[:, :, 3:].clamp(-8, 4).exp()
                 mu = mus.mean(0)
                 var = (vars_ + mus.pow(2)).mean(0) - mu.pow(2)

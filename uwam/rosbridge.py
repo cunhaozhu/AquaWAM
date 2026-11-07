@@ -1,8 +1,3 @@
-"""Single-subscription ROS bridge to the Stonefish BlueROV2 plus PD re-homing.
-
-`/stonefish_simulator/respawn_robot` aborts the simulator process (exit -4), so trials
-are re-homed with a pose PD controller instead of a hard reset.
-"""
 
 from __future__ import annotations
 
@@ -14,8 +9,7 @@ import numpy as np
 
 from .control import pose_home_pwm
 
-HOME_XYZ = (0.0, 0.0, 4.0)      # matches <arg name="position"> in the runtime scenario
-# World z is depth: 0 is the surface, the seabed in this scene sits near 6 m.
+HOME_XYZ = (0.0, 0.0, 4.0)
 DEPTH_BAND = (1.0, 5.5)
 TILT_LIMIT = np.deg2rad(60.0)
 FLS_TOPIC = "/bluerov2/fls/image"
@@ -50,7 +44,6 @@ def quat_to_rpy(x: float, y: float, z: float, w: float) -> np.ndarray:
 
 
 class SimBridge:
-    """Subscribes once, steps on the DVL 10 Hz tick, and owns the PWM / current publishers."""
 
     def __init__(self, node: str = "uwam_bridge", robot: str = "bluerov2",
                  current_topic: str = "/bluerov2/ocean_current", images: bool = False):
@@ -108,7 +101,6 @@ class SimBridge:
                 )
 
         def on_alt(msg):
-            # Stonefish reports out-of-range beams as min_range / max_range; those are not altitudes.
             lo, hi = float(msg.min_range), float(msg.max_range)
             r = float(msg.range)
             with self._lock:
@@ -186,7 +178,6 @@ class SimBridge:
             }
 
     def tick(self, timeout: float = 2.0) -> Optional[dict]:
-        """Block until a fresh DVL sample arrives; returns None on timeout/shutdown."""
         while True:
             if self._rospy.is_shutdown():
                 return None
@@ -216,12 +207,6 @@ class SimBridge:
         return False, ""
 
     def home(self, target_z: float = HOME_XYZ[2], timeout: float = 30.0, hold: float = 1.0) -> dict:
-        """Reset the dynamical state: nominal depth, level, at rest.
-
-        x/y are deliberately left free. The metric is body-frame DVL velocity, and each trial
-        translates the vehicle a few metres, so chasing an absolute waypoint would ask the PD
-        to traverse hundreds of metres at 0.25 m/s and never converge.
-        """
         t0 = None
         ok_since = None
         settled = False

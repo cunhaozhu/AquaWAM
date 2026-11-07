@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""Per-call latency of OpenVLA-7B (arXiv 2406.09246) with synthetic inputs, for the on-device latency
-table. OpenVLA emits one action per call as a string of action tokens (one token per action dimension),
-so the cost is a prefill over the image patches + prompt followed by action_dim greedy decode steps.
-
-    usage: bench_openvla_latency.py <checkpoint dir> <n calls> <out.json>
-
-We time two variants: the released 7-D Bridge action head (predict_action, unnorm_key=bridge_orig) and a
-13-token generation matching USIM's 13-D action (the paper fine-tuned OpenVLA on USIM; the number of
-decode steps, not the fine-tuning, sets the latency). Needs transformers==4.40.1 / timm==0.9.10, the
-versions OpenVLA's remote code targets."""
 import json
 import statistics
 import sys
@@ -49,11 +39,9 @@ def main() -> None:
         return ts
 
     with torch.inference_mode():
-        # released head: 7 Bridge action tokens
         ts7 = timed(lambda: vla.predict_action(**inputs, unnorm_key="bridge_orig", do_sample=False), n)
-        # USIM-sized head: 13 action tokens
         ids = inputs["input_ids"]
-        if not torch.all(ids[:, -1] == 29871):   # predict_action appends the llama space token; do the same
+        if not torch.all(ids[:, -1] == 29871):
             ids = torch.cat((ids, torch.tensor([[29871]], device=ids.device, dtype=ids.dtype)), dim=1)
         gen_inputs = {**inputs, "input_ids": ids,
                       "attention_mask": torch.ones_like(ids)}

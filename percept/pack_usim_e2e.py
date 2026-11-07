@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""Pack USIM locomotion episodes for end-to-end perception training.
-
-Per frame: 224x224 JPEG pair (ego, wrist) decoded from the AV1 videos, and labels
-  disp3   the expert's displacement over the next HORIZON seconds in the CURRENT body frame,
-          integrated from the recorded DVL body velocity with the gyro-z heading change (cm-level over
-          3 s) -- a smooth, always-defined "intent" target that also encodes obstacle avoidance
-  wp6     USIM's own target_pos (expert's current node in the body frame), auxiliary
-  state7  joints(5), pressure, altitude ; task index ; valid flag (target published)
-Output: <out>/<split>_e2e.npz (object arrays of JPEG bytes + label arrays).
-"""
 from __future__ import annotations
 
 import argparse
@@ -40,13 +30,11 @@ def decode(path: Path, stride: int):
 
 
 def future_disp(st: np.ndarray) -> np.ndarray:
-    """Body-frame displacement over the next HORIZON_S for every frame (zero-padded at the end)."""
     T = len(st)
     H = int(round(HORIZON_S / DT))
-    v = st[:, DVL].astype(np.float64)                      # body velocity
-    wz = st[:, IMU_AV][:, 2].astype(np.float64)            # yaw rate
-    psi = np.concatenate([[0.0], np.cumsum(wz[:-1] * DT)])  # heading relative to frame 0
-    # world-ish increments (relative heading frame), then re-express in the frame at t
+    v = st[:, DVL].astype(np.float64)
+    wz = st[:, IMU_AV][:, 2].astype(np.float64)
+    psi = np.concatenate([[0.0], np.cumsum(wz[:-1] * DT)])
     cy, sy = np.cos(psi), np.sin(psi)
     dx_w = (cy * v[:, 0] - sy * v[:, 1]) * DT
     dy_w = (sy * v[:, 0] + cy * v[:, 1]) * DT

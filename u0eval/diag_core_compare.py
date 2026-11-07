@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""Old core (best_ou) vs new scene-diverse core (best_scenes): offline, on
-held-out task-scene recordings (deploy_rec_holdout: inspect_pipeline_sea,
-scan_ship_modern -- never in either training set).
-
-  dyn K-step : DVL prediction MAE of the dynamics rollout (planning quality),
-               K = 5 steps (0.5 s) from the true state with the executed pwm
-  est        : dead-reckoning ensemble error (blind-path quality)
-Both per driving arm, in m/s.
-"""
 import glob
 import sys
 import types
@@ -18,8 +9,8 @@ import torch
 
 sys.path.insert(0, "/hy-tmp/underwater_wam/u0eval")
 sys.path.insert(0, "/hy-tmp/underwater_wam")
-from uwam.control import SamplingMPC  # noqa: E402
-from wam_policy_server import _load_model  # noqa: E402
+from uwam.control import SamplingMPC
+from wam_policy_server import _load_model
 
 L, K = 16, 5
 
@@ -35,7 +26,6 @@ def load(npz):
 
 @torch.no_grad()
 def kstep_err(mpc, dyn, pwm, t):
-    """||dvl_hat - dvl_true|| averaged over the K predicted steps."""
     hs = torch.from_numpy(mpc.dyn_norm(dyn[t - L:t])).unsqueeze(0).to(mpc.device)
     ha = torch.from_numpy(mpc.pwm_norm(pwm[t - L:t])).unsqueeze(0).to(mpc.device)
     st = torch.from_numpy(mpc.dyn_norm(dyn[t])).unsqueeze(0).to(mpc.device)

@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""Per-call latency of a LeRobot-family baseline policy (pi0.5 / X-VLA / SmolVLA / FastWAM fine-tunes)
-through the same wrapper the evaluation uses (lerobot_policy_server.Policy.act): synthetic observation of
-the production shapes (2 x 240x320 RGB, 29-d proprio, task string) -> one 16-step action chunk.
-  python3 bench_lerobot_latency.py <ckpt_dir> [repeats] [out.json]"""
 import json, os, platform, sys, time
 from pathlib import Path
 
@@ -11,7 +7,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 os.environ.setdefault("HF_HUB_OFFLINE", "1") if os.environ.get("HF_HUB_OFFLINE") is None else None
-from lerobot_policy_server import Policy  # noqa: E402
+from lerobot_policy_server import Policy
 
 ckpt = sys.argv[1]; n = int(sys.argv[2]) if len(sys.argv) > 2 else 20; out = sys.argv[3] if len(sys.argv) > 3 else ""
 rng = np.random.default_rng(0)

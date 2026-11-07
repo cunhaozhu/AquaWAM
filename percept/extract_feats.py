@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-"""Decode USIM videos and extract frozen DINOv2-small features + target_pos labels.
-
-One pass per split: PyAV decodes the AV1 streams, frames go through the frozen
-encoder in fp16 batches, features + labels land in a single npz. The head
-trains on these features; the encoder is never fine-tuned.
-
-Label semantics (tools/dataprocess/data_process.py): target_pos = the expert
-planner's current /bluerov2/target_pose transformed into the vehicle body
-frame, [dx, dy, dz, roll, pitch, yaw]. Frames where the expert had not yet
-published a target carry an exact-zero label and are marked invalid.
-"""
 
 from __future__ import annotations
 
@@ -32,8 +21,6 @@ ENCODERS = {
 }
 IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
 IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
-# proprio columns that locate the cameras: joint_pos (wrist cam rides the arm),
-# pressure + altitude (vertical position cues)
 STATE_COLS = list(range(0, 5)) + [27, 28]
 
 
@@ -46,7 +33,7 @@ def decode_sampled(path: Path, stride: int) -> np.ndarray | None:
                 frames.append(f.to_ndarray(format="rgb24"))
         container.close()
         return np.stack(frames) if frames else None
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"[decode] {path.name}: {e}", flush=True)
         return None
 
@@ -60,8 +47,8 @@ def featurize(model, frames_u8: np.ndarray, device: str, batch: int = 256) -> np
         x = torch.nn.functional.interpolate(x, size=(224, 224), mode="bilinear", align_corners=False)
         x = (x - IMAGENET_MEAN.to(device)) / IMAGENET_STD.to(device)
         out = model(pixel_values=x.half())
-        h = out.last_hidden_state  # [B, 1+N, 384]
-        feat = torch.cat([h[:, 0], h[:, 1:].mean(dim=1)], dim=-1)  # CLS + patch mean -> 768
+        h = out.last_hidden_state
+        feat = torch.cat([h[:, 0], h[:, 1:].mean(dim=1)], dim=-1)
         outs.append(feat.float().cpu().numpy())
     return np.concatenate(outs, axis=0)
 

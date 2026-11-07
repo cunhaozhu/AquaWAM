@@ -1,22 +1,4 @@
 #!/usr/bin/env python3
-"""One results document, regenerated from the archived eval blocks: /hy-tmp/results/RESULTS.md
-
-Sections (each produced by its own generator, all reading eval_runs/<arm>_<cond>/<task>/results.csv
-and the official 2 Hz logs; nothing is re-run):
-  1. Table IV — Full sensing      (paper rows for OpenVLA / π0.5 / GR00T / U0; our WAM rows)
-  2. Table IV — DVL dropout       (empty OpenVLA / π0.5 / GR00T rows to fill later; U0 = our run)
-  3. per-task success             (U0 full = paper Table V, everything else ours)
-  4. harder judges                (hardness_sweep.py: official rule replayed with tighter tolerances)
-  5. path quality                 (strict_rescore.py: cross-track error, path-length ratio)
-  6. USIM-Hard protocols          (write_hard_table.py)
-  7. data efficiency / held-out   (closed-loop goto blocks + offline per-task metrics)
-  8. status                       (what is still running / to be filled)
-
-Convention (fixed): U0 under FULL sensing is always the paper's number; every DVL-dropout number and
-every hard-protocol number is our own run through the official u0env judges.
-
-  python3 u0eval/write_results_md.py --percept-round r4
-"""
 from __future__ import annotations
 
 import argparse
@@ -49,8 +31,6 @@ def tally(p: Path):
 
 
 def path_quality(root: Path, vis: str) -> str:
-    """Median cross-track error and path-length ratio per family / arm / condition from
-    strict_rescore.json (episode medians -> median over the family's tasks' medians)."""
     f = RES / "usim_hard" / "strict_rescore.json"
     if not f.exists():
         return "_strict_rescore.json missing_"
@@ -111,9 +91,6 @@ def data_efficiency(root: Path) -> str:
 
 
 def dagger_curve(root: Path) -> str:
-    """Vision system per DAgger round (round 0 = USIM-only e2e model; r_k adds the on-policy
-    recordings of rounds < k). Same 7 locomotion tasks, official judges; blocks that were not run in
-    a round are left blank rather than back-filled."""
     tasks = ["goto_charge_station", "goto_water_tower", "scan_ship_modern", "scan_ship_ancient",
              "inspect_pipeline_pool", "inspect_pipeline_sea", "follow_boat"]
     drop = {"goto_": "drop8s_zero", "follow_": "drop20s_zero", "scan_": "drop40s_zero", "inspect_": "drop40s_zero"}
@@ -191,7 +168,6 @@ def main() -> None:
                 "--out", str(RES / "u0_table_full.md")])
     drop = run([PY, str(HERE / "write_u0_table.py"), "--auto", *pr, "--condition", "DVL dropout",
                 "--out", str(RES / "u0_table_drop.md")])
-    # paper-facing Table 1 (U0/OpenVLA full-sensing rows = USIM paper numbers; everything else our runs)
     run([PY, str(HERE / "write_u0_table.py"), "--auto", "--paper", *pr, "--condition", "Full sensing",
          "--out", str(RES / "table1_full.md")])
     run([PY, str(HERE / "write_u0_table.py"), "--auto", "--paper", *pr, "--condition", "DVL dropout",

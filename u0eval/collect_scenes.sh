@@ -1,18 +1,5 @@
 #!/usr/bin/env bash
-# Re-collect the WAM training set in the task scenes, then keep the simulator
-# busy with model-independent U0 grasp blocks while the new core trains.
-#
-#   1. wait for the in-flight eval block; install the bridge
-#   2. exploration server (8005) drives every locomotion scene + 2 armed scenes
-#      through the harness; recordings kept for all episodes (KEEP_ALL_EPISODES)
-#   3. convert recordings -> OU-schema npz (/hy-tmp/data/collect_scenes)
-#   4. launch ARMS=u0 grasp-stage eval (1040 U0 episodes, model-independent)
-#   5. train the scene-diverse core (best_scenes.pt) + its estimator ensemble,
-#      then write the offline validation report
 set -uo pipefail
-# The IDE shell that launches these orchestrators carries HTTP_PROXY=127.0.0.1:17890
-# with 0.0.0.0 absent from NO_PROXY; the bridge posts to http://0.0.0.0:<port>/act
-# and got 502 Bad Gateway from the proxy. Policy traffic is local: never proxy it.
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 
 WS=/hy-tmp/underwater_wam
@@ -46,7 +33,6 @@ curl -s -m 5 http://127.0.0.1:8005/health || { echo "explore server failed"; exi
 echo
 
 echo "=== collection $(date +%H:%M:%S)"
-# task:episodes -- each episode runs to the task's eval timeout (no success)
 for spec in goto_charge_station:5 goto_water_tower:5 scan_ship_ancient:3 scan_ship_modern:3 \
             inspect_pipeline_pool:2 inspect_pipeline_sea:3 follow_boat:3 \
             pick_pipe0_shallow:4 pick_red_factory:4; do

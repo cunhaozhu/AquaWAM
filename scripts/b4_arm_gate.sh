@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# b4: NLL velocity ensemble on the armed WAM + CUSUM fit on the same
-# estimator (offline OU/USIM-padded streams; closed_loop is 8-d PWM only).
 set -euo pipefail
 WS=/hy-tmp/underwater_wam
 ARM_CKPT=${ARM_CKPT:-/hy-tmp/models/uwam/best_arm.pt}

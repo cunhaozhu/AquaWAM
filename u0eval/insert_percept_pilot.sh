@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Pause the paper-scale eval at the current block boundary, run the percept-arm
-# grasp pilot (the no-asterisk arm's first closed-loop contact), then resume the
-# full eval with the resumable runner. Assumes the old run_full parents are
-# already killed and the in-flight block finishes as an orphan.
 set -uo pipefail
 WS=/hy-tmp/underwater_wam
 LOG=/hy-tmp/logs/u0eval

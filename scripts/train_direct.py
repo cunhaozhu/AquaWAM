@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-"""
-Train the amortized action head (uwam/direct.py) on teacher labels from
-scripts/build_direct_dataset.py.
-
-    loss = MSE(a_hat, a_teacher)  +  beta * J_core(a_hat)
-
-J_core is the planner's objective evaluated through the frozen dynamics core
-(uwam.direct.ImaginedCost), so the head is pulled toward the big offline teacher's
-choices AND toward low imagined cost.  Validation reports the head's imagined cost
-against the teacher's on held-out windows -- if the head matches the 512x3 teacher
-it also beats the 128x2 planner that actually runs online.
-"""
 from __future__ import annotations
 
 import argparse
@@ -23,7 +11,7 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from uwam.direct import V_SCALE, DirectHead, ImaginedCost, load_core  # noqa: E402
+from uwam.direct import V_SCALE, DirectHead, ImaginedCost, load_core
 
 
 def main():
@@ -47,8 +35,6 @@ def main():
     cost = ImaginedCost(model, dyn_norm, pwm_norm, cfg, device)
 
     z = np.load(args.data)
-    # simulator blow-ups leak into the MPC-in-the-loop dumps (|accel| in the thousands, |omega| ~800):
-    # 0.3 % of the windows, all with absurd teacher costs; they must not shape the head
     hs_raw = z["hist_s"]
     ok = (z["J"] <= 5.0) & (np.abs(hs_raw[:, :, 6:9]).max(axis=(1, 2)) <= 30.0) & \
          (np.abs(hs_raw[:, :, 3:6]).max(axis=(1, 2)) <= 10.0)

@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-"""USIM-Hard P2/P3: per-task offline metrics of one or more stage-1 cores on the USIM *test* split.
-
-For every checkpoint and every USIM task we report, in m/s:
-  dyn_mae   : DVL-velocity prediction error of the action-conditioned rollout (planning quality)
-  est_mae   : dead-reckoning estimator error with the DVL columns masked (blind-path quality)
-  hover_mae : the trivial zero-velocity guess (what a blinded controller has without a model)
-plus the same three numbers pooled over all tasks. Used for the data-efficiency curve
-(cores trained on 5/10/25/50/100 % of USIM) and the held-out-task cores (train on some tasks,
-read the error on the tasks never seen).
-
-  python3 scripts/eval_per_task.py --ckpts a.pt,b.pt --out /hy-tmp/results/usim_hard/per_task.json
-"""
 from __future__ import annotations
 
 import argparse
@@ -24,8 +12,8 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, "/hy-tmp/underwater_wam")
 sys.path.insert(0, "/hy-tmp/underwater_wam/u0eval")
-from uwam.data import DynamicsWindowDataset, collate, load_split, load_tasks  # noqa: E402
-from wam_policy_server import _load_model  # noqa: E402
+from uwam.data import DynamicsWindowDataset, collate, load_split, load_tasks
+from wam_policy_server import _load_model
 
 
 @torch.no_grad()

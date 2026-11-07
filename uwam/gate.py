@@ -1,11 +1,3 @@
-"""Dimensionless trust gate for blind-replanning, shared verbatim across domains
-(underwater vehicle and the MuJoCo ports).
-
-The gate answers one question: has anything changed since the sensor dropped out?
-Innovation is measured against the estimator's own pre-dropout output (its bias
-cancels), scaled by the estimator's calibrated uncertainty, and accumulated by a
-CUSUM statistic. All parameters are dimensionless and shared across embodiments.
-"""
 
 from __future__ import annotations
 
@@ -17,22 +9,14 @@ import numpy as np
 
 @dataclass
 class GateCfg:
-    # Defaults are the classical CUSUM midpoint values; deployments should REPLACE them
-    # with the output of `calibrate` (held-out false-alarm-rate calibration) via
-    # `GateCfg.from_calib(path)`. Uncalibrated kappa=1 demonstrably opens on stationary
-    # blackouts (see the cusum_uncalibrated ablation).
-    kappa: float = 1.0   # per-tick drift allowance, in sigma units
-    h: float = 5.0       # cumulative evidence needed for full trust in replanning
-    floor: float = 0.05  # sigma floor (normalized velocity units)
-    decay: float = 0.9   # evidence decay so the gate can close again after transients
-    # stationary-optimal endpoint, decided by the calibration runs (NOT hand-picked):
-    # 0 = hold is the cheaper stationary policy (overdamped vehicles), 1 = replanning is
-    # (drift-dominated plants like reacher, where a frozen command never holds a state)
+    kappa: float = 1.0
+    h: float = 5.0
+    floor: float = 0.05
+    decay: float = 0.9
     alpha_base: float = 0.0
 
     @classmethod
     def from_calib(cls, path) -> Optional["GateCfg"]:
-        """Load kappa/h from a calibration JSON produced by `calibrate`; None if absent."""
         import json
         from pathlib import Path
 
@@ -46,8 +30,6 @@ class GateCfg:
 
 
 class CusumGate:
-    """z_t = ||v_est - anchor|| / ||sigma + floor||, S_t = max(0, decay*S + z - kappa),
-    alpha = min(1, S/h). A known goal change latches alpha to 1 (exogenous evidence)."""
 
     def __init__(self, cfg: Optional[GateCfg] = None):
         self.cfg = cfg or GateCfg()
@@ -76,10 +58,7 @@ class CusumGate:
         return float(max(c.alpha_base, min(1.0, self.S / c.h)))
 
 
-# ------------------------------------------------------------------ calibration
-
 def _cusum_trace(z: np.ndarray, kappa: float, h: float, decay: float) -> np.ndarray:
-    """alpha_t for one z stream."""
     S = 0.0
     alpha = np.empty(len(z))
     for i, zi in enumerate(z):
@@ -99,23 +78,6 @@ def calibrate(
     h_grid: "tuple[float, ...]" = (1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0),
     shift_sizes: "Optional[list]" = None,
 ) -> dict:
-    """Choose (kappa, h) from held-out streams instead of hand-tuning.
-
-    z_null : list of no-change z streams (each one blackout-length window).
-        A stream false-alarms when its alpha ever reaches `open_level`.
-    z_shift: list of (stream, change_tick) with a real change at change_tick.
-        Detection delay = first tick with alpha >= open_level after the change.
-    shift_sizes: optional per-shift effect size (normalized velocity deviation the
-        change actually caused). Random fault collections are dominated by shifts far
-        below the acting threshold Delta*, which the gate SHOULD ignore; ranking by
-        raw miss rate would then reward blindness. With sizes given, the decision
-        metric is delay/miss on the ABOVE-MEDIAN half (the changes worth acting on);
-        the full-set miss rate is still reported.
-    Procedure: kappa candidates are quantiles of the pooled null z (drift must sit
-    inside the null bulk to have any detection power, above its mean to have finite
-    ARL); for each kappa take every h whose false-alarm rate meets the budget; among
-    all feasible pairs pick the smallest (decision miss rate, decision delay, kappa).
-    """
     pooled = np.concatenate([np.asarray(z) for z in z_null])
     if shift_sizes is not None and len(shift_sizes) == len(z_shift):
         med = float(np.median(shift_sizes))
@@ -137,7 +99,7 @@ def calibrate(
                     delays.append(float(idx[0]) * dt)
                     missed.append(False)
                 else:
-                    delays.append(float(len(z) - tc) * dt)  # censored at window end
+                    delays.append(float(len(z) - tc) * dt)
                     missed.append(True)
             d_delay = float(np.mean([delays[i] for i in big])) if big else None
             d_miss = float(np.mean([missed[i] for i in big])) if big else None
@@ -149,13 +111,9 @@ def calibrate(
             })
     feasible = [r for r in results if r["far"] <= far_target and r["delay_s"] is not None]
     if feasible:
-        # within the same miss rate and half-second delay bin prefer the LARGER kappa:
-        # a calmer gate. Chasing sub-second delay on censored-shift sets otherwise
-        # selects needlessly twitchy drifts that only leak replanning noise (observed
-        # underwater: undetectable faults + kappa 1.53 cost ~0.01 m/s of pure leakage).
         best = min(feasible, key=lambda r: (r["miss"], round(r["delay_s"] * 2) / 2,
                                             -r["kappa"], -r["h"]))
-    else:  # nothing meets the budget: least-false-alarming pair (report loudly)
+    else:
         best = min(results, key=lambda r: (r["far"], r["delay_s"] or 1e9))
     return {
         "kappa": best["kappa"], "h": best["h"], "decay": decay,

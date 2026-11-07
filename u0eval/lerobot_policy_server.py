@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""HTTP /act server for a LeRobot policy (pi0.5, X-VLA, FastWAM, SmolVLA ...) speaking the u0env
-bridge's protocol, so the fine-tuned baselines run through exactly the same harness, judges and
-dropout injection as U0 and WAM.
-
-Bridge contract (see ros_gr00t_bridge_ext.py): POST /act with an observation dict holding
-  video.ego / video.wrist          uint8 [1, 240, 320, 3]
-  state.<joint_pos|pwm|joint_v|dvl_v|imu_av|imu_la|pressure|dvl_h>   [1, k]
-  annotation.human.action.task_description  [str]
-and expects [{"action.pwm": [16, 8], "action.joint_pos": [16, 5]}, {}].
-
-USIM's LeRobot features are observation.state (29) = [joint_pos 5, pwm 8, joint_v 5, dvl_v 3,
-imu_av 3, imu_la 3, pressure 1, dvl_h 1] and action (13) = [joint_pos 5, pwm 8]; the policy was
-fine-tuned on exactly those, with the cameras renamed to the pi0.5 slots.
-"""
 from __future__ import annotations
 
 import argparse
@@ -27,7 +13,6 @@ import torch
 STATE_ORDER = ("joint_pos", "pwm", "joint_v", "dvl_v", "imu_av", "imu_la", "pressure", "dvl_h")
 STATE_DIMS = (5, 8, 5, 3, 3, 3, 1, 1)
 CHUNK, N_JOINTS = 16, 5
-# camera renaming used at fine-tuning time (dataset key -> policy key)
 CAM_MAP = {"video.ego": "observation.images.base_0_rgb", "video.wrist": "observation.images.left_wrist_0_rgb"}
 
 
@@ -43,31 +28,24 @@ def _arr(obs, key, dim):
 
 class Policy:
     def __init__(self, ckpt: str, device: str = "cuda"):
-        from lerobot.policies.factory import get_policy_class  # noqa: PLC0415
-        from lerobot.configs.policies import PreTrainedConfig  # noqa: PLC0415
+        from lerobot.policies.factory import get_policy_class
+        from lerobot.configs.policies import PreTrainedConfig
         cfg = PreTrainedConfig.from_pretrained(ckpt)
         cls = get_policy_class(cfg.type)
         self.policy = cls.from_pretrained(ckpt, config=cfg)
         self.policy.to(device).eval()
         self.device, self.cfg = device, cfg
-        # the preprocessor/postprocessor pipelines carry normalization + tokenizer
         try:
-            from lerobot.policies.factory import make_pre_post_processors  # noqa: PLC0415
+            from lerobot.policies.factory import make_pre_post_processors
             self.pre, self.post = make_pre_post_processors(cfg, pretrained_path=ckpt)
-        except Exception as e:  # noqa: BLE001
-            # no saved processor pipeline (some released base checkpoints): build the policy's default
-            # pipeline without dataset stats; if even that fails run the raw model I/O
+        except Exception as e:
             print(f"[lerobot-server] saved processors unavailable ({type(e).__name__}: {str(e)[:120]}); using defaults", flush=True)
             try:
-                from lerobot.policies.factory import make_pre_post_processors  # noqa: PLC0415
+                from lerobot.policies.factory import make_pre_post_processors
                 self.pre, self.post = make_pre_post_processors(cfg)
-            except Exception as e2:  # noqa: BLE001
+            except Exception as e2:
                 print(f"[lerobot-server] default processors unavailable ({type(e2).__name__}); raw model I/O", flush=True)
                 self.pre, self.post = None, None
-        # camera keys: the fine-tune renamed our two cameras to the pretrained model's slots (pi0.5:
-        # base_0_rgb / left_wrist_0_rgb, X-VLA: image / image2, SmolVLA: camera1 / camera2). The
-        # checkpoint's input_features list them in that order -- ego first, wrist second -- unless a
-        # JSON override is given in LEROBOT_CAM_MAP.
         self.cam_map = dict(CAM_MAP)
         env_map = os.environ.get("LEROBOT_CAM_MAP")
         if env_map:
@@ -81,14 +59,6 @@ class Policy:
               f"cameras {self.cam_map}", flush=True)
         self.n_act = int(getattr(cfg, "n_action_steps", CHUNK) or CHUNK)
         self.queue: list[np.ndarray] = []
-        # zero-shot use of an off-the-shelf checkpoint (no USIM fine-tune): its observation.state
-        # feature has the dimension of the robot it was trained on (pi0.5 32, X-VLA 8, SmolVLA 6); our
-        # 29-d proprio is padded / truncated positionally to that width so the checkpoint's own
-        # normalizer applies, and a shorter action vector is zero-padded to our 13-d interface. Fine-
-        # tuned checkpoints have a 29-d state feature and are unaffected.
-        # Only when LEROBOT_ZERO_SHOT=1: a fine-tuned checkpoint may still carry the base model's state
-        # feature shape in its config (X-VLA keeps [8]) while its normalizer holds the 29-d USIM stats,
-        # so the config shape must never drive this for fine-tuned models.
         self.state_dim = None
         if os.environ.get("LEROBOT_ZERO_SHOT") == "1":
             st = (getattr(cfg, "input_features", {}) or {}).get("observation.state")
@@ -113,11 +83,8 @@ class Policy:
 
     @torch.no_grad()
     def act(self, obs):
-        """Return a 16-step chunk. The policy predicts n_act steps; if that is shorter than 16 the
-        last action is held (the bridge always executes a fixed number of steps)."""
         dump = os.environ.get("LEROBOT_DUMP_OBS")
         if dump:
-            # diagnostics: keep the first few live observations exactly as received from the bridge
             os.makedirs(dump, exist_ok=True)
             k = len([f for f in os.listdir(dump) if f.endswith(".npz")])
             if k < 5:
@@ -127,10 +94,8 @@ class Policy:
         batch = self._batch(obs)
         if self.pre is not None:
             batch = self.pre(batch)
-        # the postprocessor un-normalizes (LeRobot's eval loop: preprocessor -> select_action ->
-        # postprocessor); without it the actions stay in normalized units
         if hasattr(self.policy, "predict_action_chunk"):
-            out = self.policy.predict_action_chunk(batch)            # [1, n_act, 13] normalized
+            out = self.policy.predict_action_chunk(batch)
             if self.post is not None:
                 out = torch.stack([self.post(out[:, i]) for i in range(out.shape[1])], dim=1)
             chunk = out.squeeze(0).float().cpu().numpy()
@@ -175,7 +140,7 @@ def make_handler(policy):
             t0 = time.time()
             try:
                 out = policy.act(obs)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 import traceback; traceback.print_exc()
                 self.send_response(500); self.end_headers(); self.wfile.write(str(e).encode()); return
             dt = (time.time() - t0) * 1e3

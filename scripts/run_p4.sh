@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# P4 chain, started after P3: waits for P3_ALL_DONE, then
-#   1. USIM-ablation training (GPU)
-#   2. planner re-collect with images (sim)     -> /hy-tmp/data/planner_mix_img
-#   3. 0.2 s grid planner collection (sim)      -> /hy-tmp/data/planner_dt2
-#   4. multimodal vel head training (GPU)
-#   5. dt-conditioned model training (GPU)
-#   6. closed-loop: usim-ablation gate, 5 Hz ZOH gate, dt-model 5 Hz gate, wam_mm blind
 set -uo pipefail
 LOGS=/hy-tmp/logs/uwam
 WS=/hy-tmp/underwater_wam

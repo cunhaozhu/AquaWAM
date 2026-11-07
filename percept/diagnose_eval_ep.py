@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Replay a recorded closed-loop eval episode through the perception head.
-
-Compares, tick by tick: predicted goal magnitude / gripper probability vs the
-judge's ground-truth gripper-object distance. Separates "head predicts wrong
-at eval states" from "controller failed to act on good predictions".
-"""
 import csv
 import json
 import sys
@@ -15,15 +9,15 @@ import numpy as np
 import pickle
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from percept.goal_head import PerceptGoal  # noqa: E402
+from percept.goal_head import PerceptGoal
 
 EP_DIR = Path(sys.argv[1] if len(sys.argv) > 1 else
               "/hy-tmp/u0env/dataset/eval_runs/wam_percept_full/pick_pipe0_shallow/episode0")
 LOG_CSV = EP_DIR.parent / "logs" / f"episode_{EP_DIR.name.replace('episode','')}_data.csv"
-STRIDE = 20  # 2 s
+STRIDE = 20
 
 pg = PerceptGoal()
-pg.ema_alpha = 1.0  # raw predictions for diagnosis
+pg.ema_alpha = 1.0
 
 pkls = sorted(EP_DIR.glob("*.pkl"), key=lambda p: int(p.stem))
 rows = []

@@ -1,16 +1,4 @@
 #!/usr/bin/env bash
-# One combined round, superseding fix_blind_round.sh:
-#   1. pause at the current block boundary
-#   2. install the extended bridge (state.imu_rpy) + restart wam / fallback
-#      servers (blind AHRS-yaw + pressure-depth, async fallback observation)
-#   3. PILOT the WAM privileged grasp arm, 5 episodes -- go/no-go before the
-#      6.5-day grasp stage
-#   4. archive every block whose caliber the fixes changed:
-#        wam_drop* + fallback_drop*  (blind path changed)
-#        fallback_full*              (latency path changed)
-#      U0 rows and wam_full rows are untouched.
-#   5. relaunch the resumable runner; it redoes the archived blocks in task
-#      order, then continues with follow_boat and the grasp stage
 set -uo pipefail
 WS=/hy-tmp/underwater_wam
 LOG=/hy-tmp/logs/u0eval

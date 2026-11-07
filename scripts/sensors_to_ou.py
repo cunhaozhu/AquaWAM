@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""
-Closed-loop sensor logs -> OU-schema episodes for the blind velocity estimator (DAgger for the
-estimator: train on exactly the input distribution the deployed policies produce).
-
-The bridge writes episode_<i>_sensors.npz (10 Hz) for every archived trial: the TRUE DVL velocity
-(kept even while the sensor is dropped for the policy), the effective/dropped DVL, IMU, pressure,
-altimeter, commanded PWM, odometry. Here every trial of every arm (WAM, fallback, U0, vision) becomes
-an OU-schema file with dvl = dvl_true as the regression label, so the estimator learns the cruise
-regime (0.5-0.6 m/s under saturated thrust, turns, hover) that the exploration data underrepresents.
-
-Held out for validation: episode index % 10 == 0 (never converted); thruster-fault blocks (eta in the
-arm name) are skipped; per (arm, task) block at most --max-per-block trials so the 440-episode U0
-grasp blocks do not dominate.
-"""
 from __future__ import annotations
 
 import argparse
@@ -73,14 +59,13 @@ def main() -> None:
             continue
         try:
             d = load(Path(f))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"skip {f}: {e}")
             continue
         t = d["t"][:, 0]
         ok = (d["pressure"][:, 0] > 0) & np.all(np.isfinite(d["dvl_true"]), axis=1) & np.all(np.isfinite(d["imu_la"]), axis=1)
         if ok.sum() < args.min_sec * 10:
             continue
-        # drop the leading rows before every sensor has arrived; keep the rest contiguous
         first = int(np.argmax(ok))
         d = {k: v[first:] for k, v in d.items()}
         t = t[first:]

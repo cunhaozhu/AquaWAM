@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""Merge rerun wam-only trials into a full-arm closed-loop json (baselines untouched).
-
-The mean-hold fix changes only the wam arm; the sweeps were rerun wam-only to save
-simulator hours. This splices the fresh wam rows into the chain files by
-(regime, goal) key and refreshes the per-arm summary blocks that aggregators read.
-Originals are kept as *.premerge.json.
-"""
 
 from __future__ import annotations
 
@@ -40,7 +33,6 @@ def main():
             kept.append(r)
     base["trials"] = kept
 
-    # refresh the summary blocks the aggregators consume
     for section, key in (("blind", "blind_track_err"), ("arms", "track_err")):
         if section not in base:
             continue

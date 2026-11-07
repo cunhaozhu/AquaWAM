@@ -1,10 +1,3 @@
-"""Multimodal dead reckoning: camera + sonar substitute for the DVL during outages.
-
-The proprioceptive estimator infers velocity from IMU + commanded PWM, which goes blind to
-whatever the commands cannot explain (an unobserved actuator fault). Optical flow in the camera
-and range structure in the FLS are direct evidence of ego-motion, so this head fuses BOTH the
-current and the previous frame of each modality with the masked proprio window.
-"""
 
 from __future__ import annotations
 
@@ -18,12 +11,10 @@ from .models import ConvEncoder, MLP
 
 
 class VelMM(nn.Module):
-    """v_t from (DVL-masked window, disturbance token, two stacked RGB+FLS frames)."""
 
     def __init__(self, cfg):
         super().__init__()
         m = cfg.model
-        # 2 frames x (RGB 3 + FLS 1) channels, stacked -> ego-motion is a two-frame signal
         self.img_enc = ConvEncoder(8, m.latent_dim)
         in_dim = m.history_len * (m.dyn_state_dim + m.pwm_dim) + m.disturbance_dim + m.latent_dim
         self.head = MLP(in_dim, 3, m.hidden, depth=3, dropout=m.dropout)
@@ -37,7 +28,6 @@ class VelMM(nn.Module):
 
 
 def pack_img_pair(rgb_prev, fls_prev, rgb_now, fls_now, hw=(96, 128)) -> np.ndarray:
-    """Two frames of RGB+FLS -> [8, H, W] float32 in [0, 1]; missing channels are zeros."""
     import cv2
 
     H, W = hw
@@ -65,7 +55,6 @@ def pack_img_pair(rgb_prev, fls_prev, rgb_now, fls_now, hw=(96, 128)) -> np.ndar
 
 
 class VelMMRuntime:
-    """Closed-loop wrapper: keeps the previous frame, returns raw-unit velocity estimates."""
 
     def __init__(self, velmm: VelMM, dyn_model, dyn_norm, pwm_norm, device: str = "cuda"):
         self.velmm = velmm.to(device).eval()

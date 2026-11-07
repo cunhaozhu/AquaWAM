@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Full closed-loop evaluation chain: strict gate -> DVL dropout -> fault-during-blackout.
-# Each stage boots a fresh simulator via with_sim.sh.
 set -uo pipefail
 CKPT="${CKPT:-/hy-tmp/models/uwam/best_ou.pt}"
 LOGS=/hy-tmp/logs/uwam

@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Before follow_boat / grasp blocks: install the bridge that publishes
-# state.ee_pose and restart BOTH policy servers (wam 8000, fallback 8002) with
-# the reviewed code (live-target follow, gripper-servo grasp, no stale
-# waypoints in the blind path). Waits for a u0 block (8000/8002 idle). One-shot.
 set -uo pipefail
 WS=/hy-tmp/underwater_wam
 LOG=/hy-tmp/logs/u0eval

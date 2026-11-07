@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Phase-1 closeout: run after BOTH chains (meanhold_resume + gym_resume) finish.
-#  1. splice the wam-only sweep reruns into the full-arm files (baselines were
-#     measured unaffected by the mean-hold fix: +-1% vs wam -13%)
-#  2. regenerate every aggregate the paper reads
 set -uo pipefail
 WS=/hy-tmp/underwater_wam
 LOGS=/hy-tmp/logs/uwam

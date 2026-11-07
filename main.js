@@ -59,7 +59,6 @@ if (!reduceMotion) {
     ocean.appendChild(el);
   });
 
-  // 鼠标靠近小鱼时，小鱼朝远离鼠标的方向逃开并渐隐，几秒后再游回来
   const fishEls = Array.from(ocean.querySelectorAll(".fish"));
   document.addEventListener("mousemove", (event) => {
     fishEls.forEach((el) => {

@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""Replay recorded /act requests (WAM_DUMP_REQ dumps of wam_policy_server.py) against a running policy
-server and time every call end to end (HTTP + decode + perception + imagination + encode). Run on the
-same machine as the server so the number is the on-device per-step cost with real inputs.
-
-    usage: replay_requests.py <dump dir> <server url> <out.json> [--pace 0.5]
-
---pace replays at the deployed control period (0.5 s between requests) so caching / thermal behaviour
-matches deployment; 0 = as fast as possible. Reports median / p95 / max wall time per call and, when
-the dump's server_act_ms.csv is present, the same statistics for the machine the dump was recorded on."""
 import argparse
 import json
 import statistics
@@ -27,7 +18,6 @@ def main() -> None:
     files = sorted(Path(args.dump).glob("req_*.json"))
     if not files:
         raise SystemExit(f"no req_*.json in {args.dump}")
-    # warm-up on the first requests (model load / cudnn autotune), then time everything
     for f in files[:args.warmup]:
         urllib.request.urlopen(urllib.request.Request(args.url, data=f.read_bytes(),
                                headers={"Content-Type": "application/json"}), timeout=120).read()
@@ -38,7 +28,7 @@ def main() -> None:
         try:
             r = urllib.request.urlopen(urllib.request.Request(args.url, data=body, headers={"Content-Type": "application/json"}), timeout=120)
             r.read()
-        except Exception:   # noqa: BLE001
+        except Exception:
             errors += 1
         wall.append((time.perf_counter() - t) * 1e3)
         if args.pace > 0:

@@ -1,4 +1,3 @@
-"""System-ID baseline, OU exploration policy, and sampling MPC over the WAM."""
 
 from __future__ import annotations
 
@@ -11,7 +10,6 @@ from .config import ControlCfg
 
 
 def sixdof_thrust_to_pwm(thrust_xyz, thrust_rpy=None) -> np.ndarray:
-    """Official BlueROV2 Heavy mixer from u0env (8 PWM in [-1, 1])."""
     t = np.asarray(thrust_xyz, dtype=np.float32).reshape(3)
     r = np.zeros(3, np.float32) if thrust_rpy is None else np.asarray(thrust_rpy, dtype=np.float32).reshape(3)
     u = np.zeros(8, np.float32)
@@ -28,18 +26,12 @@ def sixdof_thrust_to_pwm(thrust_xyz, thrust_rpy=None) -> np.ndarray:
     return np.clip(u, -1.0, 1.0).astype(np.float32)
 
 
-# Sign of d(DVL axis) / d(mixer axis command), measured on the 16200-frame OU set and
-# confirmed live (thrust_x = +0.5 -> v_x = +0.25 m/s):
-# corr(surge_mix, v_x) = +0.59, corr(sway_mix, v_y) = -0.62, corr(vert_mix, v_z) = -0.59.
 AXIS_SIGN = np.array([1.0, -1.0, -1.0], dtype=np.float32)
 THRUST_LIMIT = np.array([1.0, 1.0, 0.6], dtype=np.float32)
-# DVL +z points up while Stonefish world +z points down (depth), so world-frame z errors
-# must be flipped before they are treated as a DVL-frame velocity request.
 WORLD_Z_TO_DVL_Z = -1.0
 
 
 def body_thrust_for_velocity(v, v_goal, kp: float = 2.0, kff: float = 1.2) -> np.ndarray:
-    """Body-frame thrust command for a DVL velocity goal, in mixer sign convention."""
     v = np.asarray(v, dtype=np.float32).reshape(3)
     g = np.asarray(v_goal, dtype=np.float32).reshape(3)
     raw = kp * (g - v) + kff * g
@@ -48,7 +40,6 @@ def body_thrust_for_velocity(v, v_goal, kp: float = 2.0, kff: float = 1.2) -> np
 
 def level_rpy(rpy=None, omega=None, kp_rp: float = 1.2, kd: float = 0.25, yaw_err: float = 0.0,
               kp_yaw: float = 0.6, clip: float = 0.5) -> np.ndarray:
-    """Hold the vehicle level (and yaw fixed) so body axes stay aligned with the goal frame."""
     out = np.zeros(3, np.float32)
     if rpy is not None:
         r = np.asarray(rpy, dtype=np.float32).reshape(3)
@@ -63,7 +54,6 @@ def level_rpy(rpy=None, omega=None, kp_rp: float = 1.2, kd: float = 0.25, yaw_er
 
 def attitude_pwm(rpy=None, omega=None, yaw_err: float = 0.0, kd_w: float = 0.25,
                  clip: float = 0.5) -> np.ndarray:
-    """The attitude inner loop alone (IMU-driven, so it keeps running during DVL outages)."""
     return sixdof_thrust_to_pwm(np.zeros(3, np.float32),
                                 level_rpy(rpy, omega, kd=kd_w, yaw_err=yaw_err, clip=clip))
 
@@ -78,18 +68,12 @@ def vel_track_pwm(
     kff: float = 2.0,
     kd_w: float = 0.25,
 ) -> np.ndarray:
-    """P + feedforward on DVL error, mapped through the BlueROV2 mixer, kept level.
-
-    kff inverts the measured plant gain (axis_probe: thrust 0.5 -> |v| ~= 0.25, so v ~= 0.5*thrust),
-    which removes the steady-state shortfall a pure P law leaves behind.
-    """
     thrust = body_thrust_for_velocity(v, v_goal, kp=kp, kff=kff)
     return sixdof_thrust_to_pwm(thrust, level_rpy(rpy, omega, kd=kd_w, yaw_err=yaw_err))
 
 
 def pose_home_pwm(pos_err_world, yaw: float, v, rpy=None, omega=None,
                   kp_pos: float = 0.6, kd_vel: float = 1.4, yaw_target: float = 0.0) -> np.ndarray:
-    """PD station-keeping toward a world-frame waypoint; used to re-home between trials."""
     e = np.asarray(pos_err_world, dtype=np.float32).reshape(3)
     c, s = float(np.cos(yaw)), float(np.sin(yaw))
     e_body = np.array(
@@ -103,7 +87,6 @@ def pose_home_pwm(pos_err_world, yaw: float, v, rpy=None, omega=None,
 
 
 class OUProcess:
-    """Ornstein–Uhlenbeck thruster exploration: x += θ(μ-x)dt + σ√dt ε."""
 
     def __init__(self, dim: int = 8, cfg: Optional[ControlCfg] = None):
         self.cfg = cfg or ControlCfg()
@@ -122,7 +105,6 @@ class OUProcess:
 
 
 class LinearSystemID:
-    """v_{t+1} = A v_t + B u_t + c  least-squares baseline."""
 
     def __init__(self):
         self.A = np.eye(3, dtype=np.float32)
@@ -130,7 +112,6 @@ class LinearSystemID:
         self.c = np.zeros(3, dtype=np.float32)
 
     def fit(self, v: np.ndarray, u: np.ndarray, v_next: np.ndarray) -> "LinearSystemID":
-        # [v, u, 1] @ W = v_next
         x = np.concatenate([v, u, np.ones((v.shape[0], 1), dtype=np.float32)], axis=1)
         w, *_ = np.linalg.lstsq(x, v_next, rcond=None)
         self.A = w[:3].T.astype(np.float32)
@@ -143,11 +124,6 @@ class LinearSystemID:
 
     def closed_loop_pwm(self, v: np.ndarray, v_goal: np.ndarray, kp: float = 2.0, omega=None,
                         rpy=None, yaw_err: float = 0.0) -> np.ndarray:
-        """Thrust-allocation P+FF, lightly pulled toward the LS inverse of B.
-
-        The attitude inner loop is added on top: the LS solve knows nothing about roll/pitch,
-        and without it the vehicle slowly tips until the body-frame goal stops meaning anything.
-        """
         u0 = vel_track_pwm(v, v_goal, omega=omega, rpy=rpy, kp=kp, yaw_err=yaw_err)
         v_des = np.asarray(v, np.float32) + np.clip(np.asarray(v_goal, np.float32) - v, -0.4, 0.4)
         rhs = v_des - self.A @ v - self.c
@@ -160,17 +136,12 @@ class LinearSystemID:
 
 
 class RecursiveSystemID(LinearSystemID):
-    """RLS-adaptive variant: re-fits v_{t+1} = A v_t + B u_t + c online with forgetting.
-
-    The strongest classical baseline for regime changes; it can only adapt while velocity
-    feedback exists, which is exactly the contrast the blackout experiments are about.
-    """
 
     def __init__(self, lam: float = 0.995, p0: float = 10.0):
         super().__init__()
         self.lam = float(lam)
         self.P = np.eye(12, dtype=np.float32) * p0
-        self.W = np.zeros((12, 3), np.float32)  # rows: v(3), u(8), 1
+        self.W = np.zeros((12, 3), np.float32)
 
     def sync_from(self, sid: LinearSystemID) -> "RecursiveSystemID":
         self.W[0:3] = sid.A.T
@@ -197,10 +168,6 @@ class RecursiveSystemID(LinearSystemID):
 
 
 class SamplingMPC:
-    """
-    Sample N candidate PWM sequences (from an action library + noise),
-    rollout the WAM, pick argmin J.
-    """
 
     def __init__(self, model, dyn_norm, pwm_norm, cfg: Optional[ControlCfg] = None, device: str = "cuda"):
         self.model = model
@@ -208,16 +175,10 @@ class SamplingMPC:
         self.pwm_norm = pwm_norm
         self.cfg = cfg or ControlCfg()
         self.device = device
-        self.library: Optional[np.ndarray] = None  # [M, 8] typical PWM vectors
-        self._prev_seq: Optional[np.ndarray] = None  # warm start, cleared per trial
-        self.dt_s: float = 0.1  # sample period fed to dt-conditioned models
-        self._vel_ens = None  # optional NLL ensemble of dead-reckoning heads
-        # Deployment canonicalization of scene-level channels for the ESTIMATOR
-        # only: absolute pressure / altitude carry no velocity information, but
-        # the training mixture had them in inconsistent units (USIM 1e4 Pa vs
-        # OU raw Pa), so unseen scene depths push the heads far out of
-        # distribution (measured: v_est ~ 0.2 v_true on eval scenes). Pinning the
-        # columns to one training-typical value removes the scene dependence.
+        self.library: Optional[np.ndarray] = None
+        self._prev_seq: Optional[np.ndarray] = None
+        self.dt_s: float = 0.1
+        self._vel_ens = None
         self.canon_pressure: Optional[float] = None
         self.canon_alt: Optional[float] = None
 
@@ -246,7 +207,6 @@ class SamplingMPC:
         self.library = pwms.astype(np.float32)
 
     def estimate_velocity(self, hist_s: np.ndarray, hist_a: np.ndarray):
-        """Dead-reckoned DVL velocity (raw units) from a DVL-free history, or None if untrained."""
         import torch
 
         if not hasattr(self.model, "estimate_velocity"):
@@ -260,7 +220,6 @@ class SamplingMPC:
         return (v_n * self.dyn_norm.std[0:3] + self.dyn_norm.mean[0:3]).astype(np.float32)
 
     def load_vel_ensemble(self, path) -> bool:
-        """Attach the heteroscedastic dead-reckoning ensemble (trained separately)."""
         import torch
 
         from .models import MLP
@@ -280,16 +239,11 @@ class SamplingMPC:
             h.eval()
             heads.append(h)
         self._vel_ens = heads
-        # heads trained on canonicalized inputs must see canonicalized inputs
         self.canon_pressure = ck.get("canon_pressure")
         self.canon_alt = ck.get("canon_alt")
         return True
 
     def estimate_velocity_ens(self, hist_s: np.ndarray, hist_a: np.ndarray):
-        """(v_raw, sigma_alea_norm, sigma_epi_norm): ensemble mean in raw m/s plus the
-        aleatoric / epistemic decomposition in normalized units. Aleatoric noise is
-        i.i.d. per tick (averages out under smoothing); epistemic disagreement is a
-        systematic offset (it does not). None when the ensemble is not loaded."""
         import torch
 
         if self._vel_ens is None:
@@ -300,16 +254,13 @@ class SamplingMPC:
             hm = self.model.mask_dvl(hs)
             d = self.model.disturbance(hm, ha, dt_feat=self._dt_feat(1))
             x = torch.cat([torch.cat([hm, ha], dim=-1).flatten(1), d], dim=1)
-            # The heads were fitted on ONE core's disturbance token; a core of another width
-            # (scale ablation) changes the input size. Fall back to the core's own head instead
-            # of crashing the act loop.
             in_dim = getattr(self._vel_ens[0].net[0], "in_features", x.shape[1])
             if x.shape[1] != in_dim:
                 print(f"[mpc] vel ensemble input {in_dim} != core features {x.shape[1]}; ensemble disabled "
                       "(estimator = the core's own head)", flush=True)
                 self._vel_ens = None
                 return None
-            outs = torch.stack([h(x) for h in self._vel_ens], 0)  # [K, 1, 6]
+            outs = torch.stack([h(x) for h in self._vel_ens], 0)
             mus, vars_ = outs[:, :, :3], outs[:, :, 3:].clamp(-8, 4).exp()
             mu = mus.mean(0)
             sd_alea = vars_.mean(0).clamp_min(1e-8).sqrt()[0].cpu().numpy()
@@ -326,7 +277,6 @@ class SamplingMPC:
         return np.clip(base + noise, -1.0, 1.0)
 
     def _mixer_family(self, v, v_goal, omega, rpy, n: int, k: int, yaw_err: float = 0.0) -> np.ndarray:
-        """Structured candidates: the mixer P+FF law over a gain grid, plus per-axis primitives."""
         c = self.cfg
         if n <= 0:
             return np.zeros((0, k, 8), np.float32)
@@ -396,8 +346,6 @@ class SamplingMPC:
                 seq = np.random.uniform(-1.0, 1.0, size=(n_rest, k, 8)).astype(np.float32)
             parts.append(np.clip(seq, -1.0, 1.0))
         cands = np.concatenate(parts, axis=0) if parts else np.zeros((n, k, 8), np.float32)
-        # Raw OU snippets carry arbitrary roll/pitch moments; without the attitude inner loop on
-        # every candidate the vehicle tumbles and the body-frame goal loses meaning.
         lvl = attitude_pwm(rpy, omega, yaw_err=yaw_err)
         return np.clip(cands + lvl.reshape(1, 1, 8), -1.0, 1.0)
 
@@ -420,8 +368,6 @@ class SamplingMPC:
             omega=s_t[3:6], rpy=rpy, yaw_err=yaw_err,
         )
         j, v_err, spin = self._score(cands, hist_s, hist_a, s_t, v_goal, task_index)
-        # CEM refinement: refit a Gaussian on the elites and resample around them; the structured
-        # candidates provide global coverage, the CEM rounds do the local polish
         for _ in range(max(0, int(getattr(c, "cem_iters", 1)) - 1)):
             order = np.argsort(j)
             elites = cands[order[: int(getattr(c, "cem_elites", 16))]]
@@ -445,8 +391,6 @@ class SamplingMPC:
         c = self.cfg
         n = cands.shape[0]
         device = self.device
-        # The model's native horizon is 0.5 s, but the vehicle needs ~2 s to reach 0.25 m/s, so a
-        # single chunk leaves every candidate equally far from the goal and the ranking is noise.
         chunks = max(1, int(getattr(c, "horizon_chunks", 1)))
         with torch.no_grad():
             hs = torch.from_numpy(self.dyn_norm(hist_s)).unsqueeze(0).repeat(n, 1, 1).to(device)
@@ -467,11 +411,9 @@ class SamplingMPC:
         inv = np.stack([self.dyn_norm.invert(s_hat_np[i]) for i in range(n)])
         dvl_hat = inv[:, :, 0:3]
         omega_hat = inv[:, :, 3:6]
-        # score every horizon step, not only the last
         v_err = np.linalg.norm(dvl_hat - v_goal[None, None, :], axis=-1).mean(axis=1)
         ctrl = (cands ** 2).mean(axis=(1, 2))
         safety = np.clip(np.linalg.norm(dvl_hat, axis=-1).max(axis=-1) - 1.5, 0, None)
-        # penalise candidates the model expects to spin the vehicle up
         spin = np.linalg.norm(omega_hat, axis=-1).mean(axis=1)
         j = c.goal_w * v_err + c.control_w * ctrl + c.safety_w * safety + c.att_w * spin
         return j, v_err, spin

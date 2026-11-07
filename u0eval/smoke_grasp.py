@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""Offline smoke test of the WAM server's grasp/transfer path (no sim, no HTTP).
-
-Feeds synthetic observations through WamPolicy.act() and walks the vehicle to each
-stage's standoff pose, asserting the stage machine advances and the gripper closes.
-"""
 import sys
 import types
 from pathlib import Path
@@ -13,14 +8,14 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from wam_policy_server import ARMED_JOINTS, GRASP_STANDOFF, GRIPPER_CLOSE, WamPolicy  # noqa: E402
+from wam_policy_server import ARMED_JOINTS, GRASP_STANDOFF, GRIPPER_CLOSE, WamPolicy
 
 args = types.SimpleNamespace(
     ckpt="/hy-tmp/models/uwam/best_scenes.pt",
     vel_ens="/hy-tmp/models/uwam/vel_ens_scenes.pt",
     gate_calib="/hy-tmp/models/uwam/gate_calib.json",
-    ou="",  # skip OU library for speed
-    eval_root="/tmp/smoke_eval_root",  # empty -> no waypoints; grasp path ignores them
+    ou="",
+    eval_root="/tmp/smoke_eval_root",
     hold_anchor="mixer",
     dump_dir="",
 )
@@ -31,7 +26,6 @@ BOX = np.array([10.0, 5.0, 3.0])
 BOX_YAW = 0.3
 
 
-# armed-pose end effector in the arm frame, and the hull offset it implies
 EE = np.array([0.05, 0.0, 0.30], np.float32)
 
 
@@ -75,15 +69,11 @@ def act(pos, yaw=BOX_YAW, **kw):
     return a
 
 
-# 1. mode routing
 a = act(standoff("search") + np.array([2.0, 0, 0]))
 assert policy.mode == "grasp", policy.mode
 assert np.allclose(a["action.joint_pos"][0], ARMED_JOINTS, atol=0.2), a["action.joint_pos"][0]
 print(f"1. grasp mode, armed joints OK; stage={policy.grasp_stage}")
 
-# 2. stage transitions. search -> approach is gated on the HULL standoff;
-#    approach -> grasp is gated on the GRIPPER sitting at the hover point
-#    (6 cm above the object), since the approach stage servos the gripper.
 act(standoff("search"))
 assert policy.grasp_stage == "approach", policy.grasp_stage
 hover_pos = (BOX - np.array([0.0, 0.0, 0.06])) - gripper_offset(BOX_YAW)
@@ -91,14 +81,11 @@ act(hover_pos)
 assert policy.grasp_stage == "grasp", policy.grasp_stage
 print(f"2. search->approach->grasp OK; stage={policy.grasp_stage}")
 
-# 3. jaw is owned by the alignment gate: standing at the hull standoff is NOT
-#    enough to close (this is what the pilot got wrong)
 for _ in range(4):
     a = act(standoff("grasp"))
 assert policy.joint_cmd[0] < 0.01, ("closed without alignment", policy.joint_cmd)
 print(f"3. hull standoff alone does NOT close the jaw (jaw={policy.joint_cmd[0]:.3f}) OK")
 
-# 4. gripper actually on the object -> close, stage -> lift
 pos_aligned = BOX - gripper_offset(BOX_YAW)
 policy.grasp_stage, policy.grasp_hold_ticks = "grasp", 0
 for _ in range(3):
@@ -110,7 +97,6 @@ assert abs(policy.joint_cmd[0] - GRIPPER_CLOSE) < 1e-3, policy.joint_cmd
 assert abs(a["action.joint_pos"][0][0] - GRIPPER_CLOSE) < 0.02, a["action.joint_pos"][0]
 print(f"4. gripper on object -> closed ({policy.joint_cmd[0]:.3f}), stage=lift OK")
 
-# 5. transfer task: grasp -> lift -> carry -> release at destination
 policy._reset_episode(None)
 policy.task_str = ""
 dest = np.array([12.0, 8.0, 2.5, 0.0])
@@ -128,21 +114,17 @@ for _ in range(3):
 assert policy.grasp_stage == "lift", policy.grasp_stage
 act(standoff("lift"), task=task)
 assert policy.grasp_stage == "carry", policy.grasp_stage
-# carry target: gripper 0.5 m above the destination point (expert TRANSPORTING)
 carry_pos = (dest[:3] - np.array([0.0, 0.0, 0.5])) - gripper_offset(dest[3])
 for _ in range(4):
     a = act(carry_pos, yaw=dest[3], task=task)
-assert policy.joint_cmd[0] < 0.01, policy.joint_cmd  # released
+assert policy.joint_cmd[0] < 0.01, policy.joint_cmd
 assert policy.waypoints is None, "grasp task must not adopt a stale traj file"
 print("5. transfer: grasp->lift->carry->release at desti OK (no stale waypoints)")
 
-# 6. dropout during grasp: blind path keeps the privileged primitive alive from
-#    the dead-reckoned pose (alpha latched: live target), no crash
 a = act(standoff("grasp"), task=task, dvl_valid=0.0)
 assert policy.alpha > 0.99, policy.alpha
 print(f"6. blind grasp chunk OK |u|={np.abs(a['action.pwm']).mean():.3f} alpha={policy.alpha:.2f}")
 
-# 7. follow mode: track the live boat pose, heading = bearing to the boat
 policy._reset_episode(None)
 policy.task_str = ""
 boat = np.array([20.0, 0.0, 0.3])
@@ -152,13 +134,12 @@ o["state.box_rpy"] = np.array([[0.0, 0.0, 0.0]], np.float32)
 out = policy.act(o)
 assert policy.mode == "follow" and policy.waypoints is None, (policy.mode, policy.waypoints)
 vg, ye = policy._follow_goal(np.array([10.0, 0.0, 0.8]), 0.0, o)
-assert vg[0] > 0.2, vg  # boat 10 m ahead, standoff 3 m behind it -> surge forward
-assert abs(ye) < 1e-6, ye  # already pointing at the boat
+assert vg[0] > 0.2, vg
+assert abs(ye) < 1e-6, ye
 vg2, ye2 = policy._follow_goal(np.array([17.0, 0.0, 0.8]), 0.0, o)
-assert abs(vg2[0]) < 0.05, vg2  # at the standoff -> no surge
+assert abs(vg2[0]) < 0.05, vg2
 print(f"7. follow: surge {vg[0]:.2f} at 10 m, {vg2[0]:.2f} at standoff, yaw_err {ye:.2f} OK")
 
-# 8. follow under dropout: blind path plans toward the boat (alpha latched)
 o_blind = dict(o)
 o_blind["meta.dvl_valid"] = np.array([[0.0]], np.float32)
 policy.act(o_blind)

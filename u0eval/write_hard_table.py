@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""USIM-Hard summary table: official-protocol success vs. each hard protocol, per task and arm.
-
-Reads eval_runs/<arm>_<cond>/<task>/results.csv. The official reference for a task is the
-arm's *_full block (40 episodes); hard blocks are 20 episodes, so rates are reported in %.
-"""
 from __future__ import annotations
 
 import argparse
@@ -19,8 +14,6 @@ HARD = [
     ("hard_zeroshot", "zero-shot composed tasks (sequential judge)"),
 ]
 ARMS = ["u0", "wam", "fallback", "wam_percept"]
-# U0 under the OFFICIAL protocol is cited from the paper (arXiv 2510.07869, Table V "w/" rows);
-# our own U0 runs are used only for the conditions the paper does not have (the hard protocols).
 PAPER_U0_OFFICIAL = {
     "goto_charge_station": (39, 40), "goto_water_tower": (30, 40),
     "inspect_pipeline_pool": (16, 20), "inspect_pipeline_sea": (20, 20),
@@ -61,7 +54,7 @@ def main() -> None:
     args = ap.parse_args()
     root = Path(args.root)
 
-    def full_dir(a: str) -> str:  # the vision arm's official blocks live under wam_percept_<round>_full
+    def full_dir(a: str) -> str:
         return f"wam_percept_{args.percept_round}_full" if a == "wam_percept" and args.percept_round else f"{a}_full"
     lines = ["# USIM-Hard · same data, same scenes, harder protocol", "",
              "U0 'official' = the paper's own Table V numbers (their hardware); U0 'hard' and every WAM "

@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""Extra on-device measurements of the cruising imagination planner (SamplingMPC), for the appendix:
-
-  1. budget-latency curve: candidates {32,64,128,256,512} x refinement rounds {1,2} x lookahead {1,2,4} s
-  2. sustained load: replan continuously for --sustain-s seconds at the deployed budget (128x2, 2 s),
-     logging the latency every 10 s (thermal / clock drift check)
-  3. power: while sustaining, sample the INA3221 rails through sysfs (Jetson) and report mean W per rail,
-     idle W, and energy per decision (J) = (busy - idle GPU/SOC power) * median latency
-
-    usage: bench_orin_extra.py --models ~/models --out out.json [--device cuda] [--sustain-s 600]
-Same model loading as bench_latency.py (kept import-light for the Jetson venv)."""
 import argparse
 import glob
 import json
@@ -41,9 +31,7 @@ def timeit(fn, n, sync):
     return {"median_ms": statistics.median(ts), "p95_ms": float(np.percentile(ts, 95)), "n": n}
 
 
-# ---------------------------------------------------------------- power (Jetson INA3221 via sysfs)
 def find_rails():
-    """Return {rail_name: (curr_path, volt_path)} for every INA3221 channel exposed in sysfs."""
     rails = {}
     for hw in glob.glob("/sys/bus/i2c/drivers/ina3221/*/hwmon/hwmon*") + glob.glob("/sys/class/hwmon/hwmon*"):
         try:
@@ -104,10 +92,10 @@ def main():
         torch.set_num_threads(args.threads)
     sync = dev.startswith("cuda")
 
-    from uwam.config import Cfg, enable_arm, enable_object  # noqa: E402
-    from uwam.control import SamplingMPC  # noqa: E402
-    from uwam.data import RunningNorm  # noqa: E402
-    from uwam.models import DynamicsWAM  # noqa: E402
+    from uwam.config import Cfg, enable_arm, enable_object
+    from uwam.control import SamplingMPC
+    from uwam.data import RunningNorm
+    from uwam.models import DynamicsWAM
 
     def _load_model(ckpt_path, device):
         cfg = Cfg(); cfg.model.use_language = False
@@ -140,8 +128,7 @@ def main():
     except OSError:
         pass
 
-    # 1. budget-latency curve -------------------------------------------------------------------
-    base_chunks = int(getattr(cfg.control, "horizon_chunks", 4))     # 4 x 0.5 s = 2 s lookahead
+    base_chunks = int(getattr(cfg.control, "horizon_chunks", 4))
     curve = []
     for chunks, look_s in ((max(1, base_chunks // 2), 1.0), (base_chunks, 2.0), (base_chunks * 2, 4.0)):
         for it in (1, 2):
@@ -155,7 +142,6 @@ def main():
     mpc.cfg.n_samples, mpc.cfg.cem_iters, mpc.cfg.horizon_chunks = 128, 2, base_chunks
     mpc._prev_seq = None
 
-    # 3. idle power ----------------------------------------------------------------------------
     rails = find_rails()
     res["power_rails"] = sorted(rails)
     if rails:
@@ -165,7 +151,6 @@ def main():
     else:
         print("[power] no INA3221 rails readable in sysfs", flush=True)
 
-    # 2 (+3). sustained load at the deployed budget, power sampled meanwhile ----------------------
     ps = PowerSampler(rails) if rails else None
     if ps:
         ps.start()

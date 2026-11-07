@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""Sampling-MPC closed loop: 6 regimes x 3 goals = 18 trials, stepped on the DVL 10 Hz clock.
-
-Every trial is re-homed to the spawn pose first, so all 54 trials share one initial condition
-(`respawn_robot` aborts the simulator, so homing is done with a pose PD controller).
-"""
 
 from __future__ import annotations
 
@@ -37,13 +32,12 @@ GOALS = [
     np.array([0.0, 0.0, 0.15], np.float32),
 ]
 HARD_REGIMES = ("time_varying", "thruster_degrade", "current_and_fail")
-# setpoint steps for the goal-step experiment: surge->sway, sway->surge, surge reversal
 GOAL_STEPS = [
     (np.array([0.20, 0.0, 0.0], np.float32), np.array([0.0, 0.20, 0.0], np.float32)),
     (np.array([0.0, 0.20, 0.0], np.float32), np.array([0.20, 0.0, 0.0], np.float32)),
     (np.array([0.20, 0.0, 0.0], np.float32), np.array([-0.20, 0.0, 0.0], np.float32)),
 ]
-TRACK_TICKS = 30  # last 3.0 s @ 10 Hz
+TRACK_TICKS = 30
 HOVER_FRAC = 0.70
 GOAL_FRAC = 0.45
 TRACK_FLOOR = 0.08
@@ -118,7 +112,6 @@ def _fit_sysid(usim: Path, ou_dir: Path) -> LinearSystemID:
 
 
 def _recovery_metrics(times: list, errs: list, thr: float, t_change: float, window: float = 4.0) -> dict:
-    """Seconds to get back under the gate after a regime switch, plus the post-switch error integral."""
     post = [(t, e) for t, e in zip(times, errs) if t >= t_change]
     if not post:
         return {"recover_s": None, "err_integral": None, "n_post": 0}
@@ -145,16 +138,6 @@ def run_trial(bridge, mpc, sid, mode: str, regime, goal, sim_seconds: float,
               calib_dump: Path | None = None,
               hold_anchor: str = "mean",
               hold_anchor_win: int = 10) -> dict:
-    """Advance one controller step per DVL tick (Δt ≈ 0.1 s sim time).
-
-    `drop_dvl_at` blinds the controller's DVL after that many seconds of scored time; scoring
-    always uses the true DVL. Blind model-free arms hold their last pre-dropout command plus a
-    feedforward correction for any commanded goal change (goals are commands, not measurements,
-    so the baselines are allowed to react to them) — with a constant goal this reduces to plain
-    hold, the strongest simple blind policy. `wam` dead-reckons per tick and keeps replanning.
-
-    `goal2`/`goal_step_at` switch the setpoint mid-trial (absolute trial seconds, like change_at).
-    """
     home = bridge.home()
     L = 16
     hist_s, hist_a = [], []
@@ -163,7 +146,7 @@ def run_trial(bridge, mpc, sid, mode: str, regime, goal, sim_seconds: float,
     u_trans_hist: list = []
     goal_at_blind = None
     rls = RecursiveSystemID().sync_from(sid) if mode == "rls" else None
-    rls_prev = None  # (dvl, commanded u) of the previous fully-sighted tick
+    rls_prev = None
     if hasattr(mpc, "reset"):
         mpc.reset()
     if velmm_rt is not None:
@@ -173,12 +156,11 @@ def run_trial(bridge, mpc, sid, mode: str, regime, goal, sim_seconds: float,
     t0_sim = None
     yaw0 = None
     tick_idx = -1
-    u_zoh = None  # last controller output, held between control ticks (ZOH rate adapter)
+    u_zoh = None
     t_start = SETTLE_TICKS * TARGET_DT
     trace = {k: [] for k in ("t", "v_true", "v_used", "u", "rpy", "goal", "blind")} if trace_path else None
     goal = np.asarray(goal, np.float32)
     goal2 = None if goal2 is None else np.asarray(goal2, np.float32)
-    # uncertainty gate for the blind WAM policy: replan only as much as the evidence warrants
     c_gate = getattr(mpc, "cfg", None)
     gate_lo = float(getattr(c_gate, "blind_gate_lo", 0.05))
     gate_hi = float(getattr(c_gate, "blind_gate_hi", 0.12))
@@ -186,21 +168,14 @@ def run_trial(bridge, mpc, sid, mode: str, regime, goal, sim_seconds: float,
     n_smooth = int(getattr(c_gate, "blind_innov_smooth", 5))
     alpha = 0.0
     alphas = []
-    # anchor and signal must share the estimator's bias so it cancels in the innovation:
-    # sighted ticks also run the estimator, and the gate compares estimate against estimate
     est_sighted: list = []
-    est_hist: list = []   # blind estimates, smoothed before the innovation gate
+    est_hist: list = []
     v_anchor = None
     goal_latched = False
-    # dimensionless CUSUM gate (same code as the gym ports); engages when the sigma
-    # ensemble is loaded, otherwise the legacy linear gate below remains in effect.
-    # kappa/h come from held-out false-alarm calibration when available.
     cusum = CusumGate(getattr(mpc, "gate_cfg", None))
     _std = getattr(mpc, "dyn_norm", None)
     vel_std = _std.std[0:3].astype(np.float64) if _std is not None else np.ones(3)
     g_prev = None
-    # calibration mode: pure hold during blind (alpha forced 0) while the gate inputs
-    # (smoothed innovation, sigma) are dumped -- deployment-condition z streams
     calib = {k: [] for k in ("t", "v_sm_n", "anchor_n", "sig_eff", "dvl_true")} \
         if calib_dump is not None else None
     while True:
@@ -212,15 +187,12 @@ def run_trial(bridge, mpc, sid, mode: str, regime, goal, sim_seconds: float,
         t = st["stamp"] - t0_sim
         g_now = goal2 if (goal2 is not None and goal_step_at is not None and t >= goal_step_at) else goal
         if g_prev is not None and not np.allclose(g_now, g_prev):
-            # stale elites anchor the CEM to the old setpoint for several ticks after a step
             if hasattr(mpc, "reset"):
                 mpc.reset()
         g_prev = g_now.copy()
         dvl_true, imu_av, rpy = st["dvl"], st["imu_av"], st["rpy"]
         if yaw0 is None:
             yaw0 = float(rpy[2])
-        # hold the initial heading for every arm: asymmetric faults otherwise yaw the vehicle
-        # tens of degrees (P0 traces: 27-54 deg) and the body-frame goal slowly loses meaning
         yaw_err = float(np.arctan2(np.sin(yaw0 - rpy[2]), np.cos(yaw0 - rpy[2])))
         blind = drop_dvl_at is not None and t >= t_start + drop_dvl_at
         dvl = np.zeros(3, np.float32) if blind else dvl_true
@@ -228,21 +200,13 @@ def run_trial(bridge, mpc, sid, mode: str, regime, goal, sim_seconds: float,
         bridge.publish_current(cur)
         alt = st["alt"] if st["alt_valid"] else 1.0
         s = np.concatenate([dvl, imu_av, st["imu_la"], [st["pressure"]], [alt], last_u]).astype(np.float32)
-        # history stays strictly in the past ([t-L, t-1]), matching the training windows; the
-        # current tick is appended only after the controller has acted on it
         if blind and mode in ("wam", "no_disturb", "wam_mm") and len(hist_s) >= L:
-            # per-tick dead reckoning: write the estimate into this tick's state so the history
-            # keeps a plausible velocity profile, not zeros (estimate_velocity re-masks the DVL
-            # columns internally, so the estimator itself never sees what we store here)
             v_est = None
             sig_alea = sig_epi = None
             if mode == "wam_mm" and velmm_rt is not None:
                 v_est = velmm_rt.estimate(np.stack(hist_s, 0), np.stack(hist_a, 0),
                                           st.get("rgb"), st.get("fls"))
             if v_est is None:
-                # mean from the d-informed head (the strong dead-reckoner); the NLL
-                # ensemble contributes ONLY the sigma scale for the gate -- its own mean
-                # is a weaker estimator and demonstrably degrades blind replanning
                 v_est = mpc.estimate_velocity(np.stack(hist_s, 0), np.stack(hist_a, 0))
                 if hasattr(mpc, "estimate_velocity_ens"):
                     ens = mpc.estimate_velocity_ens(np.stack(hist_s, 0), np.stack(hist_a, 0))
@@ -251,9 +215,6 @@ def run_trial(bridge, mpc, sid, mode: str, regime, goal, sim_seconds: float,
             if v_est is not None:
                 s[0:3] = v_est
                 dvl = v_est
-                # innovation vs the hold hypothesis, in the estimator's OWN coordinates: the
-                # estimator carries a persistent per-operating-point bias (~0.05 at cruise), so a
-                # ground-truth anchor would read that bias as a permanent phantom change
                 if v_anchor is None and est_sighted:
                     v_anchor = np.mean(np.stack(est_sighted, 0), axis=0)
                     cusum.start_blind(v_anchor / vel_std)
@@ -272,9 +233,6 @@ def run_trial(bridge, mpc, sid, mode: str, regime, goal, sim_seconds: float,
                         calib["dvl_true"].append(dvl_true.copy())
                     alpha = 0.0
                 elif sig_alea is not None:
-                    # calibrated path: dimensionless CUSUM on the smoothed innovation.
-                    # The i.i.d. aleatoric part averages out over the smoothing window;
-                    # epistemic disagreement is systematic and does not.
                     sig_eff = np.sqrt(sig_alea ** 2 / max(1, len(est_hist)) + sig_epi ** 2)
                     alpha = cusum.step(v_sm / vel_std, sig_eff, goal_changed=goal_latched)
                 elif goal_latched:
@@ -300,14 +258,10 @@ def run_trial(bridge, mpc, sid, mode: str, regime, goal, sim_seconds: float,
             rls.update(rls_prev[0], rls_prev[1], dvl_true)
         tick_idx += 1
         if control_every > 1 and tick_idx % control_every != 0 and u_zoh is not None and t >= t_start:
-            # zero-order-hold rate adapter: sensors stay on the native 10 Hz clock, the
-            # controller acts every N-th tick; the model itself is untouched
             u = u_zoh.copy()
         elif t < t_start:
             u = vel_track_pwm(dvl, np.zeros(3, np.float32), imu_av, rpy, yaw_err=yaw_err)
         elif mode in ("mixer", "sysid", "rls") and blind and u_trans_hold is not None:
-            # hold the translational command; the attitude inner loop is IMU-driven and keeps
-            # running, and a commanded goal change gets an open-loop feedforward retarget
             u = u_trans_hold.copy()
             if goal_at_blind is not None and not np.allclose(g_now, goal_at_blind):
                 dg = AXIS_SIGN * 2.0 * (g_now - goal_at_blind)
@@ -330,9 +284,6 @@ def run_trial(bridge, mpc, sid, mode: str, regime, goal, sim_seconds: float,
             sid_u = sid.closed_loop_pwm(dvl, g_now, omega=imu_av, rpy=rpy, yaw_err=yaw_err)
             u, _info = mpc.plan(hs, ha, s, g_now, task_index=0, sid_u=sid_u, rpy=rpy, yaw_err=yaw_err)
             if blind and u_trans_hold is not None:
-                # uncertainty-gated hybrid: hold is optimal when nothing changed, replanning is
-                # only trusted in proportion to the evidence (goal change latches alpha to 1,
-                # dynamics drift raises it through the innovation gate)
                 u_hold_now = u_trans_hold.copy()
                 if goal_at_blind is not None and not np.allclose(g_now, goal_at_blind):
                     dg = AXIS_SIGN * 2.0 * (g_now - goal_at_blind)
@@ -341,38 +292,24 @@ def run_trial(bridge, mpc, sid, mode: str, regime, goal, sim_seconds: float,
                 u = np.clip(alpha * u + (1.0 - alpha) * u_hold_now, -1.0, 1.0)
                 alphas.append(alpha)
         u_zoh = u.copy()
-        # hold the pre-fault TRANSLATIONAL command only: efficiency is the plant (saving post-eta
-        # would apply the fault twice), and the attitude correction must stay live during blind.
-        # Hold the 1 s MEAN command, not the last tick: CEM outputs twitch around the operating
-        # point, and freezing a single tick locks the twitch in (costs ~0.01-0.03 m/s for wam;
-        # a no-op for the smooth mixer/sysid controllers).
         if not blind and t >= t_start:
             u_trans_hist.append(u - attitude_pwm(rpy, imu_av, yaw_err=yaw_err))
             u_trans_hist = u_trans_hist[-int(hold_anchor_win):]
             if hold_anchor == "mixer":
-                # closed-form mixer hold of the current velocity goal: no CEM sampling
-                # noise in the frozen command (the underwater-benchmark weak arm).
                 u_trans_hold = vel_track_pwm(dvl, g_now, omega=imu_av, rpy=rpy, yaw_err=yaw_err)
             elif hold_anchor == "median":
-                # per-channel median over a longer window: same information pathway as the
-                # mean, but robust to CEM sampling outliers that a mean drags along
                 u_trans_hold = np.clip(np.median(np.stack(u_trans_hist, 0), axis=0), -1.0, 1.0)
             else:
                 u_trans_hold = np.clip(np.mean(np.stack(u_trans_hist, 0), axis=0), -1.0, 1.0)
             goal_at_blind = g_now.copy()
         if mode == "rls":
             rls_prev = None if blind else (dvl_true.copy(), u.copy())
-        # native_coarse: a dt-conditioned model running at the coarse rate keeps its history on
-        # that same grid; otherwise the window would cover 1.6 s regardless of the control rate
         if not native_coarse or tick_idx % control_every == 0:
             hist_s.append(s)
             hist_a.append(last_u.copy())
             if len(hist_s) > L:
                 hist_s = hist_s[-L:]
                 hist_a = hist_a[-L:]
-        # last_u (history + state pwm columns) keeps the COMMANDED value: a real vehicle only
-        # knows what it commanded, and the thruster fault is exactly the unobserved gap the
-        # disturbance token has to infer from the state trajectory
         last_u = u.copy()
         bridge.publish_pwm(apply_efficiency(u, eta))
         if trace is not None:
@@ -634,7 +571,6 @@ def main():
     }
     for mode in modes:
         summary["arms"][mode], summary["hard_9"][mode] = _split(mode)
-    # keep the keys write_paper_table.py already reads
     for mode, key in (("wam", "wam_18"), ("sysid", "sysid"), ("no_disturb", "no_disturb")):
         if mode in summary["arms"]:
             summary[key] = summary["arms"][mode]

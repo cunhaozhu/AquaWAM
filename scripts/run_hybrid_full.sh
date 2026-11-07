@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Final reruns with the uncertainty-gated hybrid blind policy:
-# blind main -> fault_mid x3 seeds -> goal_step x3 seeds -> duration sweep -> severity sweep.
-# The full-sensing gate is untouched by the hybrid (no dropout) and keeps its P3 results.
 set -uo pipefail
 CKPT="${CKPT:-/hy-tmp/models/uwam/best_ou.pt}"
 LOGS=/hy-tmp/logs/uwam

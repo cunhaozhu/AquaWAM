@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""Offline action-prediction error (APE) of a LeRobot-family checkpoint on USIM episodes, computed the
-way the U0 repository's eval_policy does it (gr00t/utils/eval.py: every 16 steps of the first 300, a
-16-step chunk is predicted; MSE over the unnormalized [joint_pos(5), pwm(8)] actions), so the number
-is comparable to USIM's Table III (fine-tuned pi0.5 0.0861, GR00T N1.5 0.0374, U0 0.0359; zero-shot
-pi0.5 0.1496, GR00T 0.1834). The policy sees exactly what our HTTP server feeds it (same Policy class).
-
-    lerobot_offline_ape.py --ckpt <pretrained_model dir> --tag <name> [--per-task 4] [--root <lerobot ds>]
-
-Runs in the lerobot env. Writes /hy-tmp/baselines/offline/ape_<tag>.json.
-"""
 import argparse
 import json
 import os
@@ -21,7 +11,7 @@ import numpy as np
 import torch
 
 sys.path.insert(0, "/hy-tmp/underwater_wam/u0eval")
-from lerobot_policy_server import CHUNK, STATE_DIMS, STATE_ORDER, Policy  # noqa: E402
+from lerobot_policy_server import CHUNK, STATE_DIMS, STATE_ORDER, Policy
 
 FAMILY = {"goto": "navigation", "scan": "navigation", "inspect": "navigation", "pick": "grasping",
           "transfer": "transporting", "follow": "tracking"}
@@ -43,13 +33,12 @@ def main() -> None:
     ap.add_argument("--per-task", type=int, default=4, help="episodes per task index (last ones of the split)")
     ap.add_argument("--steps", type=int, default=300)
     args = ap.parse_args()
-    from lerobot.datasets.lerobot_dataset import LeRobotDataset  # noqa: PLC0415
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
     fps = 10
     ds = LeRobotDataset(os.path.basename(args.root), root=args.root,
                         delta_timestamps={"action": [i / fps for i in range(CHUNK)]})
     meta = ds.meta
-    # episode table: v3 keeps per-episode from/to indices and the task list in meta.episodes
     ep = meta.episodes
     n_ep = len(ep)
     cols = ep.column_names if hasattr(ep, "column_names") else list(ep.keys())
@@ -64,7 +53,7 @@ def main() -> None:
         by_task[t].append(e)
     chosen = []
     for t, eps in sorted(by_task.items()):
-        chosen += eps[-args.per_task:]          # the last episodes of each task in the split
+        chosen += eps[-args.per_task:]
     print(f"[ape] {len(chosen)} episodes over {len(by_task)} tasks; ckpt {args.ckpt}", flush=True)
 
     pol = Policy(args.ckpt, device="cuda" if torch.cuda.is_available() else "cpu")
@@ -76,7 +65,7 @@ def main() -> None:
             item = ds[f0 + s]
             task = item.get("task", "") if isinstance(item.get("task", ""), str) else str(item.get("task", ""))
             gt = item["action"].numpy() if torch.is_tensor(item["action"]) else np.asarray(item["action"])
-            gt = np.atleast_2d(gt)[:CHUNK]                      # [16, 13] (padded past the episode end)
+            gt = np.atleast_2d(gt)[:CHUNK]
             pad = item.get("action_is_pad")
             valid = (~pad.numpy()) if pad is not None else np.ones(len(gt), bool)
             valid &= (s + np.arange(len(gt))) < (f1 - f0)
@@ -95,7 +84,7 @@ def main() -> None:
             t0 = time.time()
             out = pol.act(obs)[0]
             lat.append(time.time() - t0)
-            pred = np.concatenate([out["action.joint_pos"], out["action.pwm"]], axis=1)[:len(gt)]   # [16, 13]
+            pred = np.concatenate([out["action.joint_pos"], out["action.pwm"]], axis=1)[:len(gt)]
             err = ((pred[valid] - gt[valid]) ** 2)
             fam = family_of(task)
             se[fam][0] += float(err.sum()); se[fam][1] += int(err.size)

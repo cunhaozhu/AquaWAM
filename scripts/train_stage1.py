@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Stage-1 body-dynamics WAM training + recovery evaluations."""
 
 from __future__ import annotations
 
@@ -88,7 +87,6 @@ def evaluate(model: DynamicsWAM, loader: DataLoader, device: str, use_history: b
 
 @torch.no_grad()
 def eval_vel_estimator(model: DynamicsWAM, loader: DataLoader, device: str, dyn_norm) -> dict:
-    """Dead-reckoning error in m/s: how well the DVL can be replaced by IMU + PWM history."""
     model.eval()
     tot, tot_hover, n = 0.0, 0.0, 0
     tot_fault, n_fault = 0.0, 0
@@ -100,7 +98,6 @@ def eval_vel_estimator(model: DynamicsWAM, loader: DataLoader, device: str, dyn_
         v_hat = model.estimate_velocity(model.mask_dvl(hs), ha)
         err = ((v_hat - gt) * scale).abs().mean(dim=1)
         tot += err.sum().item()
-        # a zero-velocity guess is the trivial fallback a blinded controller has
         tot_hover += (gt * scale).abs().mean(dim=1).sum().item()
         n += gt.size(0)
         if "eta_target" in batch:
@@ -122,7 +119,6 @@ def eval_vel_estimator(model: DynamicsWAM, loader: DataLoader, device: str, dyn_
 
 @torch.no_grad()
 def eval_eta(model: DynamicsWAM, loader: DataLoader, device: str) -> dict:
-    """Per-thruster efficiency decoding error, overall and on frames with an active fault."""
     model.eval()
     tot, n = 0.0, 0
     tot_fault, n_fault = 0.0, 0
@@ -138,7 +134,6 @@ def eval_eta(model: DynamicsWAM, loader: DataLoader, device: str) -> dict:
         n += gt.size(0)
         faulty = gt.min(dim=1).values < 0.99
         if faulty.any():
-            # error on the degraded channels only, the quantity the claim is about
             bad = (gt[faulty] < 0.99)
             ch_err = ((eta_hat[faulty] - gt[faulty]).abs() * bad).sum() / bad.sum()
             tot_fault += float(ch_err) * int(faulty.sum())
@@ -192,7 +187,6 @@ def linear_probe(model: DynamicsWAM, loader: DataLoader, device: str, n_classes:
 
 @torch.no_grad()
 def linear_probe_time(model: DynamicsWAM, loader: DataLoader, device: str, n_classes: int, label_key: str, t_cut: float = 0.8) -> dict:
-    """Fit on early windows (t_frac < t_cut), test on later windows — no adjacent-window leak."""
     model.eval()
     ztr, ytr, zte, yte = [], [], [], []
     for batch in loader:
@@ -272,12 +266,6 @@ def _summarize(ev, ev_no, ev_slow, probe) -> dict:
 
 def subset_usim(eps: list, frac: float = 1.0, seed: int = 0,
                 include: list[int] | None = None, exclude: list[int] | None = None) -> list:
-    """USIM-Hard data-efficiency / held-out-task splits.
-
-    Task filters first (by task_index), then a seeded *stratified* subsample keeping round(frac * n)
-    episodes of every remaining task (>= 1), so a 10 % core still sees every task's dynamics regime.
-    frac=1.0 with no filters is the identity, i.e. existing recipes are untouched.
-    """
     if include:
         eps = [e for e in eps if e.task_index in include]
     if exclude:
@@ -350,8 +338,6 @@ def train(
             more = load_ou_split(Path(extra), use_arm=use_arm, n_joints=cfg.model.n_joints, use_object=use_object)
             print(f"mixing {len(more)} planner-distribution episodes from {extra}", flush=True)
             extra_eps += more
-        # upsample so expert-PWM OOD is not drowned by ~1.7k USIM episodes; the planner-distribution
-        # set is 3x shorter per episode, so it needs its own factor to reach a comparable share
         reps = 12
         print(f"mixing {len(ou_eps)} OU episodes x{reps} + {len(extra_eps)} planner x{extra_reps}",
               flush=True)
@@ -373,8 +359,6 @@ def train(
             train_ds.dyn_norm.load_state_dict(resume_ckpt["dyn_norm"])
             train_ds.pwm_norm.load_state_dict(resume_ckpt["pwm_norm"])
         else:
-            # state layout grew (e.g. 29-d arm core -> 35-d arm+object): keep the checkpoint's
-            # normalization on the channels it was trained with, fit only the new ones from data
             import numpy as _np
             for norm, key in ((train_ds.dyn_norm, "dyn_norm"), (train_ds.pwm_norm, "pwm_norm")):
                 m0 = _np.asarray(resume_ckpt[key]["mean"], _np.float32); s0 = _np.asarray(resume_ckpt[key]["std"], _np.float32)
@@ -382,11 +366,6 @@ def train(
                 norm.mean[:k] = m0[:k]; norm.std[:k] = s0[:k]
             print(f"resume: norm layout {ck_dyn_dim} -> {cfg.model.dyn_state_dim}; kept the first {ck_dyn_dim} channels' "
                   "statistics, fitted the new ones", flush=True)
-    # Normalization floors for channels that are (nearly) constant in parts of the corpus: the
-    # expert never moves the arm, so USIM alone gives joint stds of 1e-5 and any real joint motion
-    # at deployment is normalized to 1e4 -- the planner then extrapolates into nonsense. Floors are
-    # physical units: 0.05 rad / rad/s for joints, 5 cm for the object position, 0.2 for its
-    # yaw cos/sin and validity flag, 0.05 for joint targets.
     if use_arm:
         floors = {}
         nj = cfg.model.n_joints
@@ -440,7 +419,6 @@ def train(
     cfg.model.n_tasks = max(cfg.model.n_tasks, n_tasks)
     model = DynamicsWAM(cfg).to(device)
     if resume_ckpt is not None:
-        # heads change shape across experiments; keep the matching weights instead of refusing
         own = model.state_dict()
         src = resume_ckpt["model"]
         reshaped = [k for k, v in src.items() if k in own and own[k].shape != v.shape]
@@ -477,9 +455,6 @@ def train(
                     out_no = model(batch, use_history=False, counterfactuals=False)
                 out["s_hat_nohist"] = out_no["s_hat"]
                 loss, logs = dynamics_batch_loss(out, batch, cfg)
-                # dead-reckoning head: same window with the DVL wiped, regress the true velocity.
-                # Fault windows are upweighted: the P0 traces showed the estimator under-reads
-                # surge exactly there, which made the MPC overshoot.
                 if hasattr(model, "vel_head"):
                     v_hat = model.estimate_velocity(model.mask_dvl(batch["hist_s"]), batch["hist_a"])
                     per = torch.nn.functional.smooth_l1_loss(
@@ -492,8 +467,6 @@ def train(
                     l_vel = (w * per).sum() / w.sum()
                     loss = loss + cfg.train.lambda_vel * l_vel
                     logs["vel_est"] = l_vel.detach()
-                    # the deployed blind loop fills the history's DVL columns with the estimator's
-                    # own outputs; keep d stable under that input distribution
                     if cfg.train.lambda_dcons > 0 and "is_ou" in batch:
                         ou_m2 = batch["is_ou"] > 0.5
                         if ou_m2.any():

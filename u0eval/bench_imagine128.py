@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Like-for-like imagination cost of the two instances of the world model: 128 candidate action
-sequences, four chained 0.5 s chunks (2 s), disturbance token from a 16-step history, exactly the
-rollout path the planners use (GraspPlanner._score_seq / SamplingMPC). Reports the vehicle-scale
-instance (19-d state, 8 commands) and the full-scale instance (35-d, 13 commands).
-  python3 u0eval/bench_imagine128.py --device cuda --models /hy-tmp/models/uwam --out results/imagine128.json
-"""
 import argparse, json, platform, sys, time
 from pathlib import Path
 
@@ -39,9 +33,9 @@ def main():
     args = ap.parse_args()
     dev = args.device
     sync = dev.startswith("cuda")
-    from uwam.config import Cfg, enable_arm, enable_object  # noqa: E402
-    from uwam.data import RunningNorm  # noqa: E402
-    from uwam.models import DynamicsWAM  # noqa: E402
+    from uwam.config import Cfg, enable_arm, enable_object
+    from uwam.data import RunningNorm
+    from uwam.models import DynamicsWAM
 
     def load(path):
         cfg = Cfg(); cfg.model.use_language = False

@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""Train the manipulation WAM-direct head (uwam/direct_manip.py) by behaviour cloning on the system's own
-successful grasp rollouts (OU-schema npz from recordings_to_ou.py: dyn [T,35], pwm [T,13]).
-
-  --data   comma-separated OU dirs (e.g. /hy-tmp/data/manip_direct_local,/hy-tmp/data/manip_direct_box2)
-  --runs   eval_runs roots holding the results.csv of those recordings (success filter), comma-separated
-Episode-level validation split. Reports per-channel action MAE on the held-out episodes (PWM in raw units,
-jaw timing accuracy = fraction of held-out steps where sign(jaw_cmd - 0.0075) is predicted right).
-"""
 import argparse, csv, json, re, sys, time
 from pathlib import Path
 
@@ -14,8 +6,8 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from uwam.data import load_ou_split  # noqa: E402
-from uwam.direct_manip import ACT_DIM, STATE_DIM, DirectManip  # noqa: E402
+from uwam.data import load_ou_split
+from uwam.direct_manip import ACT_DIM, STATE_DIM, DirectManip
 
 
 def success_lookup(runs):
@@ -50,7 +42,6 @@ def main():
         for e in load_ou_split(Path(d), use_arm=True, use_object=True):
             m = re.match(r"(.+?)__(.+?)__episode(\d+)$", e.task) if isinstance(e.task, str) else None
             if m is None:
-                # task field may not carry the file name; fall back to accepting everything
                 eps.append(e); continue
             key = (m.group(1), m.group(2), int(m.group(3)))
             if args.successes_only and not succ.get(key, False):
@@ -74,7 +65,6 @@ def main():
     allS = S.reshape(-1, STATE_DIM); allA = np.concatenate([A.reshape(-1, ACT_DIM), Y.reshape(-1, ACT_DIM)])
     model.s_mu.copy_(torch.as_tensor(allS.mean(0))); model.s_sd.copy_(torch.as_tensor(np.maximum(allS.std(0), 1e-3)))
     model.a_mu.copy_(torch.as_tensor(allA.mean(0))); model.a_sd.copy_(torch.as_tensor(np.maximum(allA.std(0), 1e-3)))
-    # the jaw channel is nearly binary with a tiny scale: weight it so timing is learned
     w_ch = torch.ones(ACT_DIM, device=dev); w_ch[8] = 5.0
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs)

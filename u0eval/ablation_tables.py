@@ -1,20 +1,4 @@
 #!/usr/bin/env python3
-"""
-DreamZero-style ablations of the underwater WAM, tallied from archived eval blocks.
-
-  A. planner budget & amortization   goto x2, full sensing: CEM 32x1 / 128x2 / 512x2, WAM-direct
-                                     (amortized head), WAM-direct + 32x1 polish; plan latency from
-                                     the servers' own timing lines (logs/u0eval/wam_plan_latency.log)
-  B. repetitive demos vs play data   cores: USIM only (12.6 h repeated task demos) / play only
-                                     (3.3 h non-repetitive exploration + deployment) / both (deployed)
-  C. model scale                     0.68 M / 2.4 M / 8.9 M cores, same recipe
-  D. few-shot embodiment adaptation  dead thruster 1: U0 zero-shot, WAM zero-shot, WAM after 30 min
-                                     of faulted play (full sensing and DVL loss at 8 s)
-  E. WAM-direct closed loop          4 locomotion tasks x {full, dropout}: MPC vs direct vs direct+CEM
-  F. failure prediction (P5)         AUROC of world-model statistics for U0's dropout failures
-
-Every cell is "successes/episodes (mean time-to-success s)" from eval_runs/<arm>_<cond>/<task>/results.csv.
-"""
 from __future__ import annotations
 
 import argparse
@@ -54,7 +38,6 @@ def cell(t, n_expect: int | None = None):
 
 
 def latency_table(path: Path):
-    """Group the servers' 'plan latency (source, n=.., iters=..)' lines -> mean of the reported means."""
     if not path.exists():
         return {}
     pat = re.compile(r"plan latency \((\w+), n=(\d+), iters=(\d+)\): mean ([0-9.]+) ms\s+p50 ([0-9.]+)\s+p95 ([0-9.]+)")
@@ -127,7 +110,7 @@ def sec_scale(root: Path, hist_dir: Path) -> str:
                 vals = [r["eval"]["dvl_mae_ms"] for r in h if "eval" in r and "dvl_mae_ms" in r["eval"]]
                 if vals:
                     mae = f"{min(vals):.4f}"
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
         out.append(f"| {name} | {mae} | " + " | ".join(cell(tally(root, arm, t), 20) for t in GOTO) + " |")
     out.append("")
@@ -151,9 +134,9 @@ def sec_fewshot(root: Path) -> str:
                 if kind == "u0":
                     cells.append(cell(tally(root, f"{arm}_{tag}{suf}", t), 20) if not suf else "n/a")
                 elif kind == "v1":
-                    if suf:  # v1 dropout blocks were moved to the estimator archive
+                    if suf:
                         cells.append(cell(tally(root, f"_archive_est1/{arm}_{tag}{suf}__{t}", ""), 20))
-                    else:    # full sensing never touches the estimator: same block as the deployed row
+                    else:
                         cells.append(cell(tally(root, f"{arm}_{tag}", t), 20))
                 else:
                     cells.append(cell(tally(root, f"{arm}_{tag}{suf}", t), 20))
@@ -213,8 +196,6 @@ def sec_direct_closed_loop(root: Path) -> str:
 
 
 def sec_estimator(root: Path, eval_json: Path) -> str:
-    """Dead-reckoning estimator retrained on closed-loop deployment logs (v2) vs. the original (v1):
-    offline DR metrics on real blind-flight recordings + the re-run main-table dropout column."""
     loco = [("goto_charge_station", 8), ("goto_water_tower", 8), ("inspect_pipeline_pool", 40), ("inspect_pipeline_sea", 40),
             ("scan_ship_ancient", 40), ("scan_ship_modern", 40), ("follow_boat", 20)]
     out = []
@@ -234,7 +215,7 @@ def sec_estimator(root: Path, eval_json: Path) -> str:
         for arm in ("wam", "fallback"):
             v1 = tally(root, f"_archive_est1/{arm}_drop{d}s_zero__{t}", "")
             v2 = tally(root, f"{arm}_drop{d}s_zero", t)
-            if v1 is None:  # block not re-run yet: the live block still IS the v1 result
+            if v1 is None:
                 v1, v2 = v2, None
             cells += [cell(v1), cell(v2)]
         out.append(f"| {t.replace('_', ' ')} (DVL loss at {d} s) | " + " | ".join(cells) + " |")

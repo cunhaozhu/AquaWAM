@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""Dead-reckoning estimator error vs vehicle speed, on recorded eval episodes.
-
-Replays the 10 Hz recordings (episode0 of each block) through the same
-estimate_velocity() the blind path uses (DVL columns masked), and bins the
-error by true speed. Separates U0-driven windows (saturated PWM, up to 0.7 m/s)
-from WAM-driven ones (<= 0.3 m/s) to test the takeover-at-speed hypothesis.
-"""
 import glob
 import pickle
 import sys
@@ -16,7 +9,7 @@ import numpy as np
 
 sys.path.insert(0, "/hy-tmp/underwater_wam/u0eval")
 sys.path.insert(0, "/hy-tmp/underwater_wam")
-from wam_policy_server import WamPolicy  # noqa: E402
+from wam_policy_server import WamPolicy
 
 L = 16
 
@@ -46,7 +39,6 @@ def load_ep(ep_dir: Path):
 
 
 def frames_from(rows, t):
-    """[L,19] window ending at t and the matching [L,8] action history."""
     dyn, act = [], []
     for i in range(t - L + 1, t + 1):
         v, av, la, pr, alt, pwm = rows[i]

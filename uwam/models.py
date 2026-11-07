@@ -1,4 +1,3 @@
-"""Disturbance-aware multimodal action-conditioned underwater world model."""
 
 from __future__ import annotations
 
@@ -25,7 +24,6 @@ class MLP(nn.Module):
 
 
 class ConvEncoder(nn.Module):
-    """AquaJEPA-style stride-2 5x5 stack: 32, 64, 96, 128 -> GAP -> latent."""
 
     def __init__(self, in_ch: int, latent: int):
         super().__init__()
@@ -41,14 +39,12 @@ class ConvEncoder(nn.Module):
         self.proj = nn.Linear(128, latent)
 
     def forward(self, x):
-        # x: [B, C, H, W] in [0, 1]
         h = self.conv(x)
         h = h.mean(dim=(-2, -1))
         return self.proj(h)
 
 
 class ResidualUNet(nn.Module):
-    """Predict ΔI so that Î_{t+K} = I_t + ΔI."""
 
     def __init__(self, in_ch: int = 3, cond_dim: int = 128, base: int = 32):
         super().__init__()
@@ -66,7 +62,6 @@ class ResidualUNet(nn.Module):
         nn.init.zeros_(self.head.weight)
         nn.init.zeros_(self.head.bias)
         self.delta_scale = 0.4
-        # FiLM so PWM/disturbance actually modulate the residual (bottleneck-only add was too weak)
         self.film3 = nn.Linear(cond_dim, base * 8 * 2)
         self.film2 = nn.Linear(cond_dim, base * 4 * 2)
         self.film1 = nn.Linear(cond_dim, base * 2 * 2)
@@ -94,7 +89,6 @@ class ResidualUNet(nn.Module):
 
 
 class HistoryDisturbanceEncoder(nn.Module):
-    """d_t = E_D(H_t). GRU over (state, past action[, sample period])."""
 
     def __init__(self, state_dim: int, pwm_dim: int, hidden: int, dist_dim: int, dropout: float,
                  use_dt: bool = False):
@@ -121,19 +115,12 @@ class HistoryDisturbanceEncoder(nn.Module):
 
 
 class DynamicsWAM(nn.Module):
-    """
-    Nominal + history-conditioned residual:
-
-        ŝ = f_nom(s, a) + f_disturbance(s, a, d)
-    """
 
     def __init__(self, cfg):
         super().__init__()
         m = cfg.model
         self.K = m.horizon_dyn
         self.use_dt = bool(getattr(m, "use_dt", False))
-        # ablation "w/o disturbance token": the history encoder is bypassed and d_t = 0, so the
-        # residual net sees only (s_t, a_{t:t+K}); trained and served with the same flag.
         self.no_token = bool(getattr(m, "no_token", False))
         self.hist = HistoryDisturbanceEncoder(
             m.dyn_state_dim, m.pwm_dim, m.hidden, m.disturbance_dim, m.dropout, use_dt=self.use_dt
@@ -151,14 +138,7 @@ class DynamicsWAM(nn.Module):
         self.task_to_d = nn.Linear(m.latent_dim, m.disturbance_dim)
         self.flow_head = nn.Linear(m.disturbance_dim, 3)
         self.fail_head = nn.Linear(m.disturbance_dim, 3)
-        # per-thruster efficiency regression: the fault is unobserved in the commanded-action
-        # coordinates, so d has to carry it; this head makes that quantitative (MAE on eta)
         self.eta_head = MLP(m.disturbance_dim, 8, m.hidden, depth=2, dropout=m.dropout)
-        # Dead-reckons the current DVL velocity from IMU + PWM history when the DVL is gone, so the
-        # MPC can keep closing the loop. Reads the raw masked window (a ridge fit on the window
-        # beats a head on d alone) PLUS the disturbance token: with commanded-action semantics the
-        # actuator fault is only visible as a command-vs-IMU discrepancy, which d is trained to
-        # carry (fault CE, eta regression, d-consistency).
         self.vel_win = m.history_len
         self.vel_head = MLP(
             m.history_len * (m.dyn_state_dim + m.pwm_dim) + m.disturbance_dim,
@@ -170,7 +150,6 @@ class DynamicsWAM(nn.Module):
 
     @staticmethod
     def dt_feature(dt, ref: float = 0.1):
-        """Normalized sample-period feature: 0 at the native 10 Hz grid."""
         return dt / ref - 1.0
 
     def disturbance(self, hist_s, hist_a, dt_feat=None):
@@ -187,7 +166,6 @@ class DynamicsWAM(nn.Module):
         return h
 
     def estimate_velocity(self, hist_s, hist_a, already_masked: bool = True, dt_feat=None):
-        """Predicted normalized DVL velocity from a DVL-free history window."""
         h = hist_s if already_masked else self.mask_dvl(hist_s)
         d_masked = self.disturbance(h, hist_a, dt_feat=dt_feat)
         x = torch.cat([torch.cat([h, hist_a], dim=-1).flatten(1), d_masked], dim=1)
@@ -208,9 +186,6 @@ class DynamicsWAM(nn.Module):
             d_use = d_use + self.task_to_d(self.task_emb(task_index))
         res = self.f_res(torch.cat([base, d_use], dim=-1))
         delta = (nom + res).view(b, self.K, self.state_dim)
-        # integrate residual deltas from current state (shared across horizon as offsets)
-        # Use cumulative: s_{t+k} = s_t + sum_{i<=k} delta_i   -- too strong.
-        # Document form is one-step residual; we predict K-step offsets from s_t.
         s_hat = s_t.unsqueeze(1) + delta
         return s_hat, nom.view(b, self.K, self.state_dim), res.view(b, self.K, self.state_dim)
 
@@ -270,10 +245,6 @@ class VisualWAM(nn.Module):
 
 
 class MultimodalWAM(nn.Module):
-    """
-    RGB/wrist + optional FLS + proprio + disturbance + action (+ language)
-    -> future state / DVL / RGB / sonar profile.
-    """
 
     def __init__(self, cfg):
         super().__init__()
@@ -320,7 +291,6 @@ class MultimodalWAM(nn.Module):
             z_w = z_w * masks.get("wrist", 1)
             z_s = z_s * masks.get("sonar", 1)
         z = self.fuse(torch.cat([z_v, z_w, z_s, z_p, z_a, d], dim=-1))
-        # residual on frozen dyn so FLS/RGB can help DVL; no_fls zeros z_s and the sonar residual
         res = self.state_head(z).view(b, self.K, self.state_dim)
         res_s = self.sonar_state_head(z_s).view(b, self.K, self.state_dim)
         s_mm = dyn_out["s_hat"] + res + res_s

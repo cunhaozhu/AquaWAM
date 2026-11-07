@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# After the locomotion pilot finishes: tables, hold-anchor opt, b3/b4, then
-# paper-scale eval. Safe to start while run_pilot.sh is still running.
 set -uo pipefail
 WS=/hy-tmp/underwater_wam
 LOG=/hy-tmp/logs/u0eval
@@ -13,7 +11,6 @@ for i in $(seq 1 720); do
     echo "pilot finished $(date +%H:%M:%S)"
     break
   fi
-  # also succeed if follow_boat drop log exists (script may have been started without tee)
   if [ -f "$LOG/pilot_follow_boat_fallback_drop.log" ] && ! pgrep -f 'run_pilot.sh' >/dev/null; then
     echo "pilot processes gone; treating as done $(date +%H:%M:%S)"
     break
@@ -34,7 +31,6 @@ cp /hy-tmp/u0env/ros_ws/src/bluerov2_control/scripts/ros_gr00t_bridge_ext.py \
    /hy-tmp/u0env/ros_ws/devel/lib/bluerov2_control/ros_gr00t_bridge_ext.py
 chmod +x /hy-tmp/u0env/ros_ws/devel/lib/bluerov2_control/ros_gr00t_bridge_ext.py
 
-# stop u0env sim leftover from the last pilot episode
 for pat in 'run_pilot.sh' 'run_eval_task.sh' 'batch_run_ext' 'parsed_simulator' 'roslaunch' 'rosmaster'; do
   for p in $(ps -eo pid,cmd | awk -v pat="$pat" 'index($0, pat) && !/awk/{print $1}'); do
     kill -9 "$p" 2>/dev/null || true
@@ -63,14 +59,11 @@ echo "=== b3 fine-tune (stop U0 briefly to free VRAM) $(date +%H:%M:%S)"
 U0PID=$(pgrep -f 'inference_service_u0.py' | head -1 || true)
 if [ -n "${U0PID:-}" ]; then kill "$U0PID" || true; sleep 5; fi
 bash "$WS/scripts/b3_iterate.sh" /hy-tmp/data/planner_task >"$LOG/b3_iterate.log" 2>&1 || true
-# restore U0
 nohup bash "$WS/u0eval/start_server.sh" u0 8001 >/dev/null 2>&1 &
 sleep 20
-# if b3 wrote a ckpt, point the WAM server at it
 if [ -f /hy-tmp/models/uwam/best_ou_b3.pt ]; then
   for p in $(pgrep -f 'wam_policy_server|fallback_policy_server' || true); do kill "$p" 2>/dev/null || true; done
   sleep 2
-  # keep default ckpt name: copy over best_ou only if the file exists and is newer
   cp -n /hy-tmp/models/uwam/best_ou.pt /hy-tmp/models/uwam/best_ou_pre_b3.pt || true
   cp /hy-tmp/models/uwam/best_ou_b3.pt /hy-tmp/models/uwam/best_ou.pt
   nohup bash "$WS/u0eval/start_server.sh" wam 8000 >/dev/null 2>&1 &
@@ -79,7 +72,6 @@ if [ -f /hy-tmp/models/uwam/best_ou_b3.pt ]; then
 fi
 
 echo "=== b4 arm ensemble + task gate $(date +%H:%M:%S)"
-# training needs VRAM; stop the live servers for this block
 U0PID=$(pgrep -f 'inference_service_u0.py' | head -1 || true)
 if [ -n "${U0PID:-}" ]; then kill "$U0PID" || true; sleep 5; fi
 for p in $(pgrep -f 'wam_policy_server|fallback_policy_server' || true); do kill "$p" 2>/dev/null || true; done

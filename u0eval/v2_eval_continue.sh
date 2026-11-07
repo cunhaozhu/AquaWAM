@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Continue a LeRobot v2 eval after an in-flight rec-queue exits.
-#   WAIT_PAT  pgrep pattern that must disappear before we start (empty = start now)
-#   ARM / RUN_TAG / *_CKPT / ES / INST / GPU / KIND / NEP  as for lerobot_rec_queue.sh
-#   remaining args = tasks
 set -uo pipefail
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 WS=/hy-tmp/underwater_wam

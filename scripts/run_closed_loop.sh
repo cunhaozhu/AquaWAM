@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# NVIDIA GL sim + SamplingMPC 18 trials (plus sysid / no_disturb).
 set -euo pipefail
 CKPT="${CKPT:-/hy-tmp/models/uwam/best.pt}"
 SECONDS_ARG="${SECONDS_ARG:-12}"

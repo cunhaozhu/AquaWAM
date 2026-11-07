@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
-# Paper-scale evaluation, batched + RESUMABLE: blocks whose eval_runs results.csv
-# already holds >= the expected episode count are skipped, so the run can be
-# paused at block boundaries and relaunched.
-#
-# Usage: bash run_full.sh [stage]   # locomotion | grasp | all
 set -uo pipefail
-# The IDE shell that launches these orchestrators carries HTTP_PROXY=127.0.0.1:17890
-# with 0.0.0.0 absent from NO_PROXY; the bridge posts to http://0.0.0.0:<port>/act
-# and got 502 Bad Gateway from the proxy. Policy traffic is local: never proxy it.
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 
 STAGE=${1:-locomotion}
@@ -33,11 +25,11 @@ drop_for() {
   esac
 }
 port_for() { case "$1" in u0) echo 8001;; wam) echo 8000;; fallback) echo 8002;; wam_percept) echo 8003;; esac; }
-ARMS=${ARMS:-"u0 wam fallback"}   # e.g. ARMS=u0 runs only the model-independent U0 blocks
+ARMS=${ARMS:-"u0 wam fallback"}
 
 done_rows() { [ -f "$1" ] && tail -n +2 "$1" 2>/dev/null | wc -l || echo 0; }
 
-run_block() {  # task arm cond
+run_block() {
   local task=$1 arm=$2 cond=$3
   local port; port=$(port_for "$arm")
   local nep; nep=$(eps_for "$task")

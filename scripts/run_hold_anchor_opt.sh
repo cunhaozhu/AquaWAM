@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Mixer closed-form hold vs CEM-mean hold, wam-only, on the two underwater
-# weak protocols (constant-goal blackout and fault_mid). Requires exclusive sim.
 set -uo pipefail
 CKPT="${CKPT:-/hy-tmp/models/uwam/best_ou.pt}"
 LOGS=/hy-tmp/logs/uwam

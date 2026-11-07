@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
-"""Build gripper-command labels aligned row-for-row with the extracted features.
-
-The features npz appended episodes in sorted-parquet order with per-row episode
-ids; replaying the same stride over the same ordering reproduces the alignment
-exactly. Label = expert's commanded gripper joint (action[0]): 1 if closing.
-"""
 import sys
 from pathlib import Path
 
 import numpy as np
 import pyarrow.parquet as pq
 
-CLOSE_THRESH = 0.007  # action[0] is 0 (open) or 0.015 (close)
+CLOSE_THRESH = 0.007
 
 
 def build(split: str, suffix: str = "_base"):
